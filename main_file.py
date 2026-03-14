@@ -69,7 +69,7 @@ network.add("Generator", "solar", bus="electricity bus", p_nom_extendable=True,
 
 # Add OCGT generator
 capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033)  # in €/MW
-fuel_cost = 21.6*1.2  # in €/MWh_th
+fuel_cost = 21.6  # in €/MWh_th
 efficiency = 0.39
 marginal_cost_OCGT = fuel_cost / efficiency  # in €/MWh_el
 network.add("Generator", "OCGT", bus="electricity bus", p_nom_extendable=True,
@@ -82,7 +82,7 @@ average_demand = df_elec[country].mean()  # in MW
 capital_cost_nuclear = annuity(60, 0.07) * 3460 * 1000 * (1 + 0.03)
 network.add("Generator", "nuclear", bus="electricity bus", p_nom_extendable=True,
             carrier="nuclear", capital_cost=capital_cost_nuclear, marginal_cost=6,
-            p_nom_max=average_demand*0.5, p_max_pu=1.0, p_min_pu=0.5, ramp_limit_up=0.15, ramp_limit_down=0.15,
+            p_nom_max=average_demand*0.7, p_max_pu=1.0, p_min_pu=0.5, ramp_limit_up=0.15, ramp_limit_down=0.15,
             overwrite=True)
 
 # Optimize without CO2 limit
@@ -351,8 +351,8 @@ print("The largest percentage difference between worst and best year is "+str(ro
 
 
 #%% #######################################
-###### STEP 3 ##################################
-##############################################
+###### STEP 3 #############################
+###########################################
 
 network.model.solver_model = None
 
@@ -418,7 +418,7 @@ sizes_storage = [float(network_storage.generators_t.p['onshorewind'].sum()),
 plt.figure()
 plt.pie(sizes_storage, colors=colors, labels=labels, wedgeprops={'linewidth': 0})
 plt.axis('equal')
-plt.title('Electricity Mix (With Storage))', y=1.07)
+plt.title('Electricity Mix (With Storage)', y=1.07)
 plt.show()
 
 
@@ -432,7 +432,9 @@ plt.show()
 
 
 
-
+#%% ############################
+## CO2 LIMIT ###################
+################################
 
 
 network.model.solver_model = None
@@ -480,4 +482,4 @@ plt.pie(sizes_co2, colors=colors, labels=labels, wedgeprops={'linewidth': 0})
 plt.axis('equal')
 plt.title('Electricity Mix (With CO2 Limit)', y=1.07)
 plt.show()
-# %%
+
