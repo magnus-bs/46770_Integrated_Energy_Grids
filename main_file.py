@@ -1,9 +1,13 @@
+#%%
 import pandas as pd
 import pypsa
 import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import cartopy.crs as ccrs
+import cartopy.crs as cfeature
+
 
 #%% #####################################
 ### STEP 1 
@@ -33,7 +37,8 @@ def annuity(n, r):
 network = pypsa.Network()
 hours_in_2015 = pd.date_range('2015-01-01 00:00Z', '2015-12-31 23:00Z', freq='h')
 network.set_snapshots(hours_in_2015.values)
-network.add("Bus", "electricity bus")
+network.add("Bus", "electricity bus", y=46.2, x=2.2, v_nom=400, carrier="AC")
+
 
 # Load electricity demand data
 df_elec = pd.read_csv('data/electricity_demand.csv', sep=';', index_col=0)  # in MWh
@@ -483,3 +488,87 @@ plt.axis('equal')
 plt.title('Electricity Mix (With CO2 Limit)', y=1.07)
 plt.show()
 
+
+
+#%%#################################
+# Step 4
+####################################
+
+# Add neighboring countries as buses
+network.add("Bus", "FR", y=46.2, x=2.2, v_nom=400, carrier="AC")
+network.add("Bus", "DE", y=51.0, x=10.0, v_nom=400, carrier="AC")
+network.add("Bus", "CH", y=46.8, x=8.3, v_nom=400, carrier="AC")
+network.add("Bus", "IT", y=43.0, x=12.5, v_nom=400, carrier="AC")
+network.add("Bus", "ES", y=40.4, x=-3.7, v_nom=400, carrier="AC")
+
+
+# France connections
+network.add("Line", "FR-CH", bus0="electricity bus", bus1="CH", s_nom=500, x=0.1, r=0)
+network.add("Line", "FR-DE", bus0="electricity bus", bus1="DE", s_nom=500, x=0.1, r=0)
+network.add("Line", "FR-ES", bus0="electricity bus", bus1="ES", s_nom=500, x=1, r=0)
+network.add("Line", "FR-IT", bus0="electricity bus", bus1="IT", s_nom=500, x=1, r=0)
+network.add("Line", "FR-UK", bus0="electricity bus", bus1="UK", s_nom=500, x=1, r=0)
+
+# extra lines to create a cycles
+network.add("Line", "CH-DE", bus0="CH", bus1="DE", s_nom=500, x=0.1, r=0)
+network.add("Line", "CH-IT", bus0="CH", bus1="IT", s_nom=500, x=0.1, r=0)
+
+
+# simple plot
+fig = plt.figure(figsize=(5,5))
+ax = plt.axes(projection=ccrs.PlateCarree())
+
+network.plot(
+    ax=ax,
+    margin=0.2,
+    bus_sizes=0.2,
+    bus_colors="orange",
+    bus_alpha=0.7,
+    line_colors="orchid",
+    line_widths=3,
+    title="Connections",
+)
+
+ax.set_extent([-5, 15, 40, 55], crs=ccrs.PlateCarree())
+
+plt.show()
+
+# maybe more nice plot
+fig = plt.figure(figsize=(5,5))
+ax = plt.axes(projection=ccrs.PlateCarree())
+
+# add map background
+ax.add_feature(cfeature.OCEAN, facecolor="lightblue")
+ax.add_feature(cfeature.LAND, facecolor="whitesmoke")
+ax.add_feature(cfeature.COASTLINE)
+
+network.plot(
+    ax=ax,
+    margin=0.2,
+    bus_sizes=0.5,
+    bus_colors="orange",
+    bus_alpha=0.7,
+    line_colors="orchid",
+    line_widths=3,
+    title="Connections",
+)
+
+ax.set_extent([-5, 15, 40, 55])
+for bus in network.buses.index:
+    x = network.buses.loc[bus, "x"]
+    y = network.buses.loc[bus, "y"]
+    ax.text(x, y, bus)
+
+plt.show()
+
+#%%
+network.lopf(network.snapshots)  # LOPF = linear optimal power flow
+# Power flows
+print(network.lines_t.p0)  # power flow from bus0 to bus1
+
+# Generator dispatch
+print(network.generators_t.p)
+
+# Prices (dual of nodal balance)
+print(network.buses_t.marginal_price)
+# %%
