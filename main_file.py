@@ -74,7 +74,7 @@ network.add("Generator", "solar", bus="FR", p_nom_extendable=True,
 
 # Add OCGT generator
 capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033)  # in €/MW
-fuel_cost = 21.6  # in €/MWh_th
+fuel_cost = 21.6*2  # in €/MWh_th
 efficiency = 0.39
 marginal_cost_OCGT = fuel_cost / efficiency  # in €/MWh_el
 network.add("Generator", "OCGT", bus="FR", p_nom_extendable=True,
@@ -429,6 +429,115 @@ plt.show()
 
 
 
+#%% ----------------------------
+# COMPARISON
+# ----------------------------
+
+# ── 1. Cost comparison ────────────────────────────────────────────────────────
+total_demand = float(network.loads_t.p.sum())
+
+costs = {
+    'Without storage': network.objective,
+    'With storage':    network_storage.objective
+}
+lcoe = {k: v / total_demand for k, v in costs.items()}
+
+print("=== Cost Comparison ===")
+for label in costs:
+    print(f"{label}: {costs[label]/1e6:.2f} M€  |  LCOE: {lcoe[label]:.2f} €/MWh")
+print(f"Cost reduction: {(costs['Without storage'] - costs['With storage'])/1e6:.2f} M€ "
+      f"({(1 - costs['With storage']/costs['Without storage'])*100:.1f}%)")
+
+# ── 2. Optimal capacities comparison ─────────────────────────────────────────
+cap_base    = network.generators.p_nom_opt
+cap_storage = network_storage.generators.p_nom_opt
+
+df_cap = pd.DataFrame({
+    'Without storage (MW)': cap_base,
+    'With storage (MW)':    cap_storage
+}).round(0)
+print("\n=== Optimal Capacities ===")
+print(df_cap)
+
+# ── 3. Electricity mix comparison (pie charts side by side) ───────────────────
+gens = ['onshorewind', 'solar', 'OCGT', 'nuclear']
+gen_labels = ['Onshore wind', 'Solar', 'OCGT', 'Nuclear']
+gen_colors = [tech_colors['onshorewind'], tech_colors['solar'],
+              tech_colors['OCGT'], tech_colors['nuclear']]
+
+sizes_base    = [float(network.generators_t.p[g].sum()) for g in gens]
+sizes_storage = [float(network_storage.generators_t.p[g].sum()) for g in gens]
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+for ax, sizes, title in zip(axes,
+                             [sizes_base, sizes_storage],
+                             ['Without Storage', 'With Storage']):
+    ax.pie(sizes, labels=gen_labels, colors=gen_colors,
+           wedgeprops={'linewidth': 0}, autopct='%1.1f%%')
+    ax.set_title(title)
+plt.suptitle('Electricity Mix Comparison')
+plt.tight_layout()
+plt.show()
+
+# ── 4. Annual dispatch comparison (stacked bar) ───────────────────────────────
+dispatch_data = pd.DataFrame({
+    'Without storage': [float(network.generators_t.p[g].sum()) / 1e6 for g in gens],
+    'With storage':    [float(network_storage.generators_t.p[g].sum()) / 1e6 for g in gens]
+}, index=gen_labels)
+
+dispatch_data.T.plot(
+    kind='bar', stacked=True,
+    color=gen_colors, figsize=(8, 5)
+)
+plt.ylabel('Annual generation (TWh)')
+plt.title('Annual Dispatch Comparison')
+plt.xticks(rotation=0)
+plt.legend(bbox_to_anchor=(1.05, 1))
+plt.tight_layout()
+plt.show()
+
+# ── 5. Dispatch time series comparison (first week) ──────────────────────────
+plot_time = 24 * 7
+fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+
+for ax, net, title in zip(axes,
+                           [network, network_storage],
+                           ['Without Storage', 'With Storage']):
+    ax.plot(net.loads_t.p['load'][:plot_time].values,
+            color='black', label='Demand', lw=2)
+    for g, label, color in zip(gens, gen_labels, gen_colors):
+        ax.plot(net.generators_t.p[g][:plot_time].values,
+                label=label, color=color, alpha=0.8)
+    if title == 'With Storage':
+        ax.fill_between(range(plot_time),
+                        network_storage.storage_units_t.p[:plot_time]['Pumped Hydro'].values,
+                        color='teal', alpha=0.5, label='Storage')
+    ax.set_title(title)
+    ax.set_ylabel('Power (MW)')
+    ax.legend(loc='upper right', fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+plt.xlabel('Hour')
+plt.tight_layout()
+plt.show()
+
+# ── 6. Storage state of charge (full year) ───────────────────────────────────
+p_nom_storage = network_storage.storage_units.p_nom_opt["Pumped Hydro"]
+if p_nom_storage > 0:
+    fig, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
+    network_storage.storage_units_t.p["Pumped Hydro"].plot(
+        ax=axes[0], color='teal', title='Storage Dispatch (MW)')
+    axes[0].axhline(0, color='black', linewidth=0.5)
+    axes[0].set_ylabel('MW')
+
+    network_storage.storage_units_t.state_of_charge["Pumped Hydro"].plot(
+        ax=axes[1], color='teal', title='State of Charge (MWh)')
+    axes[1].set_ylabel('MWh')
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Storage capacity is 0 MW — no storage was built.")
+
 
 
 
@@ -767,6 +876,7 @@ plt.legend(bbox_to_anchor=(1.05, 1))
 plt.tight_layout()
 plt.show()
 
+
 #%% -------------------------------------
 # POWER FLOW IN HOUR 1
 # ---------------------------------------
@@ -777,3 +887,4 @@ print("The powerflows for the first hour of the year are:")
 print(power_flow)
 
 # %%
+
