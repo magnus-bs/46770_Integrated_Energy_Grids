@@ -37,7 +37,7 @@ def annuity(n, r):
 network = pypsa.Network()
 hours_in_2015 = pd.date_range('2015-01-01 00:00Z', '2015-12-31 23:00Z', freq='h')
 network.set_snapshots(hours_in_2015.values)
-network.add("Bus", "electricity bus", y=46.2, x=2.2, v_nom=400, carrier="AC")
+network.add("Bus", "FR", y=46.2, x=2.2, v_nom=400, carrier="AC")
 
 
 # Load electricity demand data
@@ -46,7 +46,7 @@ df_elec.index = pd.to_datetime(df_elec.index)
 country = 'FRA'
 
 # Add load to the bus
-network.add("Load", "load", bus="electricity bus", p_set=df_elec[country].values)
+network.add("Load", "load", bus="FR", p_set=df_elec[country].values)
 
 # Add carriers
 network.add("Carrier", "gas", co2_emissions=0.19, overwrite=True)  # in t_CO2/MWh_th
@@ -59,7 +59,7 @@ df_onshorewind = pd.read_csv('data/onshore_wind_1979-2017.csv', sep=';', index_c
 df_onshorewind.index = pd.to_datetime(df_onshorewind.index)
 CF_wind = df_onshorewind[country][[hour.strftime("%Y-%m-%dT%H:%M:%SZ") for hour in network.snapshots]]
 capital_cost_onshorewind = annuity(30, 0.07) * 910000 * (1 + 0.033)  # in €/MW
-network.add("Generator", "onshorewind", bus="electricity bus", p_nom_extendable=True,
+network.add("Generator", "onshorewind", bus="FR", p_nom_extendable=True,
             carrier="onshorewind", capital_cost=capital_cost_onshorewind, marginal_cost=0,
             p_max_pu=CF_wind.values, overwrite=True)
 
@@ -68,7 +68,7 @@ df_solar = pd.read_csv('data/pv_optimal.csv', sep=';', index_col=0)
 df_solar.index = pd.to_datetime(df_solar.index)
 CF_solar = df_solar[country][[hour.strftime("%Y-%m-%dT%H:%M:%SZ") for hour in network.snapshots]]
 capital_cost_solar = annuity(25, 0.07) * 425000 * (1 + 0.03)  # in €/MW
-network.add("Generator", "solar", bus="electricity bus", p_nom_extendable=True,
+network.add("Generator", "solar", bus="FR", p_nom_extendable=True,
             carrier="solar", capital_cost=capital_cost_solar, marginal_cost=0,
             p_max_pu=CF_solar.values, overwrite=True)
 
@@ -77,7 +77,7 @@ capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033)  # in €/MW
 fuel_cost = 21.6  # in €/MWh_th
 efficiency = 0.39
 marginal_cost_OCGT = fuel_cost / efficiency  # in €/MWh_el
-network.add("Generator", "OCGT", bus="electricity bus", p_nom_extendable=True,
+network.add("Generator", "OCGT", bus="FR", p_nom_extendable=True,
             carrier="gas", capital_cost=capital_cost_OCGT, marginal_cost=marginal_cost_OCGT,
             overwrite=True)
 
@@ -85,7 +85,7 @@ network.add("Generator", "OCGT", bus="electricity bus", p_nom_extendable=True,
 # Add nuclear generator
 average_demand = df_elec[country].mean()  # in MW
 capital_cost_nuclear = annuity(60, 0.07) * 3460 * 1000 * (1 + 0.03)
-network.add("Generator", "nuclear", bus="electricity bus", p_nom_extendable=True,
+network.add("Generator", "nuclear", bus="FR", p_nom_extendable=True,
             carrier="nuclear", capital_cost=capital_cost_nuclear, marginal_cost=6,
             p_nom_max=average_demand*0.7, p_max_pu=1.0, p_min_pu=0.5, ramp_limit_up=0.15, ramp_limit_down=0.15,
             overwrite=True)
@@ -247,10 +247,10 @@ for year in years:
     # Create network
     network_year = pypsa.Network()
     network_year.set_snapshots(pd.RangeIndex(len(demand)))
-    network_year.add("Bus", "electricity bus", p_set=demand)
+    network_year.add("Bus", "FR", p_set=demand)
     
     # Load (same for all years)
-    network_year.add("Load", "load", bus="electricity bus", p_set=demand)
+    network_year.add("Load", "load", bus="FR", p_set=demand)
 
     # Add carriers
     network_year.add("Carrier", "gas", co2_emissions=0.19, overwrite=True)
@@ -259,20 +259,20 @@ for year in years:
     network_year.add("Carrier", "solar", overwrite=True)
     
     # Add generators
-    network_year.add("Generator", "onshorewind", bus="electricity bus", p_nom_extendable=True,
+    network_year.add("Generator", "onshorewind", bus="FR", p_nom_extendable=True,
                 carrier="onshorewind", capital_cost=capital_cost_onshorewind, marginal_cost=0,
                 p_max_pu=CF_wind, overwrite=True)
 
-    network_year.add("Generator", "solar", bus="electricity bus", p_nom_extendable=True,
+    network_year.add("Generator", "solar", bus="FR", p_nom_extendable=True,
                 carrier="solar", capital_cost=capital_cost_solar, marginal_cost=0,
                 p_max_pu=CF_solar, overwrite=True)
 
-    network_year.add("Generator", "OCGT", bus="electricity bus", p_nom_extendable=True,
+    network_year.add("Generator", "OCGT", bus="FR", p_nom_extendable=True,
                 carrier="gas", capital_cost=capital_cost_OCGT, marginal_cost=marginal_cost_OCGT,
                 overwrite=True)
 
     avg_demand = df_elec[country].mean()
-    network_year.add("Generator", "nuclear", bus="electricity bus", p_nom_extendable=True,
+    network_year.add("Generator", "nuclear", bus="FR", p_nom_extendable=True,
                 carrier="nuclear", capital_cost=capital_cost_nuclear, marginal_cost=6,
                 p_nom_max=avg_demand*0.7, p_max_pu=1.0, p_min_pu=0.5,
                 ramp_limit_up=0.15, ramp_limit_down=0.15, overwrite=True)
@@ -367,7 +367,7 @@ network_storage = network.copy()
 lifetime = 60
 capital_cost_hydro = annuity(60, 0.07) * 1994 * 10**3
 fixed_o_m = 16.46 * 10**3  # EUR/MW/yr
-network_storage.add("StorageUnit", "Pumped Hydro", bus="electricity bus", p_nom_extendable=True,
+network_storage.add("StorageUnit", "Pumped Hydro", bus="FR", p_nom_extendable=True,
             max_hours=11, efficiency_store=0.95, efficiency_dispatch=0.85,
             capital_cost=capital_cost_hydro + fixed_o_m, marginal_cost=0, overwrite=True)
 
@@ -498,19 +498,23 @@ plt.show()
 network.add("Bus", "DE", y=51.0, x=10.0, v_nom=400, carrier="AC")
 network.add("Bus", "CH", y=46.8, x=8.3, v_nom=400, carrier="AC")
 network.add("Bus", "IT", y=43.0, x=12.5, v_nom=400, carrier="AC")
-network.add("Bus", "ES", y=40.4, x=-3.7, v_nom=400, carrier="AC")
-network.add("Bus", "UK", y=51.5, x=-0.1, v_nom=400, carrier="AC")
+network.add("Bus", "BE", y=40.4, x=-3.7, v_nom=400, carrier="AC")
+
+# Add load for neighboring countries
+network.add("Load", "load", bus="DE", p_set=df_elec["DEU"].values)
+network.add("Load", "load", bus="CH", p_set=df_elec["CHE"].values)
+network.add("Load", "load", bus="IT", p_set=df_elec["ITA"].values)
+network.add("Load", "load", bus="BE", p_set=df_elec["BEL"].values)
 
 
 # France connections
-network.add("Line", "FR-CH", bus0="electricity bus", bus1="CH", s_nom=500, x=0.1, r=0)
-network.add("Line", "FR-DE", bus0="electricity bus", bus1="DE", s_nom=500, x=0.1, r=0)
-network.add("Line", "FR-ES", bus0="electricity bus", bus1="ES", s_nom=500, x=1, r=0)
-network.add("Line", "FR-IT", bus0="electricity bus", bus1="IT", s_nom=500, x=1, r=0)
-network.add("Line", "FR-UK", bus0="electricity bus", bus1="UK", s_nom=500, x=1, r=0)
+network.add("Line", "FR-CH", bus0="FR", bus1="CH", s_nom=500, x=0.1, r=0)
+network.add("Line", "FR-DE", bus0="FR", bus1="DE", s_nom=500, x=0.1, r=0)
+network.add("Line", "FR-IT", bus0="FR", bus1="IT", s_nom=500, x=1, r=0)
+network.add("Line", "FR-BE", bus0="FR", bus1="BE", s_nom=500, x=1, r=0)
 
 # extra lines to create a cycles
-network.add("Line", "CH-DE", bus0="CH", bus1="DE", s_nom=500, x=0.1, r=0)
+#network.add("Line", "CH-DE", bus0="CH", bus1="DE", s_nom=500, x=0.1, r=0)
 network.add("Line", "CH-IT", bus0="CH", bus1="IT", s_nom=500, x=0.1, r=0)
 
 
