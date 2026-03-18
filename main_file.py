@@ -508,14 +508,14 @@ network.add("Load", "load", bus="BE", p_set=df_elec["BEL"].values)
 
 
 # France connections
-network.add("Line", "FR-CH", bus0="FR", bus1="CH", s_nom=500, x=0.1, r=0)
-network.add("Line", "FR-DE", bus0="FR", bus1="DE", s_nom=500, x=0.1, r=0)
-network.add("Line", "FR-IT", bus0="FR", bus1="IT", s_nom=500, x=1, r=0)
-network.add("Line", "FR-BE", bus0="FR", bus1="BE", s_nom=500, x=1, r=0)
+network.add("Line", "FR-CH", bus0="FR", bus1="CH", s_nom=3200, x=0.1, r=0)
+network.add("Line", "FR-DE", bus0="FR", bus1="DE", s_nom=3000, x=0.1, r=0)
+network.add("Line", "FR-IT", bus0="FR", bus1="IT", s_nom=4000, x=1, r=0)
+network.add("Line", "FR-BE", bus0="FR", bus1="BE", s_nom=2000, x=1, r=0)
 
 # extra lines to create a cycles
 #network.add("Line", "CH-DE", bus0="CH", bus1="DE", s_nom=500, x=0.1, r=0)
-network.add("Line", "CH-IT", bus0="CH", bus1="IT", s_nom=500, x=0.1, r=0)
+network.add("Line", "CH-IT", bus0="CH", bus1="IT", s_nom=4200, x=0.1, r=0)
 
 
 # simple plot
