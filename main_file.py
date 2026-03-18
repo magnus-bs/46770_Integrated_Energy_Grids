@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import cartopy.crs as ccrs
-import cartopy.crs as cfeature
+import cartopy.feature as cfeature
 
 
 #%% #####################################
@@ -495,11 +495,11 @@ plt.show()
 ####################################
 
 # Add neighboring countries as buses
-network.add("Bus", "FR", y=46.2, x=2.2, v_nom=400, carrier="AC")
 network.add("Bus", "DE", y=51.0, x=10.0, v_nom=400, carrier="AC")
 network.add("Bus", "CH", y=46.8, x=8.3, v_nom=400, carrier="AC")
 network.add("Bus", "IT", y=43.0, x=12.5, v_nom=400, carrier="AC")
 network.add("Bus", "ES", y=40.4, x=-3.7, v_nom=400, carrier="AC")
+network.add("Bus", "UK", y=51.5, x=-0.1, v_nom=400, carrier="AC")
 
 
 # France connections
@@ -562,7 +562,9 @@ for bus in network.buses.index:
 plt.show()
 
 #%%
-network.lopf(network.snapshots)  # LOPF = linear optimal power flow
+# Run optimization
+network.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
+
 # Power flows
 print(network.lines_t.p0)  # power flow from bus0 to bus1
 
@@ -571,4 +573,22 @@ print(network.generators_t.p)
 
 # Prices (dual of nodal balance)
 print(network.buses_t.marginal_price)
+# %%
+# Line loading (how congested each line is)
+line_loading = network.lines_t.p0.abs() / network.lines.s_nom * 100  # in %
+line_loading.mean().plot(kind='bar', figsize=(10,5), title='Average Line Loading (%)')
+plt.ylabel('Loading (%)')
+plt.axhline(100, color='red', linestyle='--', label='Capacity limit')
+plt.legend()
+plt.show()
+
+#%%
+# Average marginal price per bus
+avg_prices = network.buses_t.marginal_price.mean()
+print(avg_prices)
+
+# Price over time per bus
+network.buses_t.marginal_price.plot(figsize=(12,5), title='Nodal Marginal Prices Over Time')
+plt.ylabel('Price (€/MWh)')
+plt.show()
 # %%
