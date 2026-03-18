@@ -74,7 +74,7 @@ network.add("Generator", "solar", bus="FR", p_nom_extendable=True,
 
 # Add OCGT generator
 capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033)  # in €/MW
-fuel_cost = 21.6*2  # in €/MWh_th
+fuel_cost = 21.6  # in €/MWh_th # set multiplier for storage case?
 efficiency = 0.39
 marginal_cost_OCGT = fuel_cost / efficiency  # in €/MWh_el
 network.add("Generator", "OCGT", bus="FR", p_nom_extendable=True,
