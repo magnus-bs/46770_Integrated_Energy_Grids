@@ -7,6 +7,8 @@ import numpy as np
 import seaborn as sns
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+from plot_functions import plot_first_hour_trade_and_flow
+
 
 
 #%% #####################################
@@ -103,30 +105,32 @@ for gen in network.generators.index:
 
 # Plot dispatch (In winter, first week)
 plot_time=24*7
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(15, 5))
 plt.plot(network.loads_t.p['load'][0:plot_time], color=tech_colors['demand'], label='demand')
 plt.plot(network.generators_t.p['onshorewind'][0:plot_time], color=tech_colors['onshorewind'], label='onshore wind')
 plt.plot(network.generators_t.p['solar'][0:plot_time], color=tech_colors['solar'], label='solar')
 plt.plot(network.generators_t.p['OCGT'][0:plot_time], color=tech_colors['OCGT'], label='gas (OCGT)')
 plt.plot(network.generators_t.p['nuclear'][0:plot_time], color=tech_colors['nuclear'], label='Nuclear')
-plt.legend(fancybox=True, shadow=True, loc='best')
-plt.title('Electricity Dispatch (First 196 Hours in winter)')
+plt.legend(fancybox=True, ncol=3, shadow=True, loc='best')
+plt.title('Electricity Dispatch (In winter)')
 plt.xlabel('Hour')
 plt.ylabel('Power (MW)')
+plt.grid(alpha=0.3)
 plt.show()
 
 # Plot dispatch (In summer)
 plot_summer_delay=24*30*6
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(15, 5))
 plt.plot(network.loads_t.p['load'][plot_summer_delay:plot_summer_delay+plot_time], color=tech_colors['demand'], label='demand')
 plt.plot(network.generators_t.p['onshorewind'][plot_summer_delay:plot_summer_delay+plot_time], color=tech_colors['onshorewind'], label='onshore wind')
 plt.plot(network.generators_t.p['solar'][plot_summer_delay:plot_summer_delay+plot_time], color=tech_colors['solar'], label='solar')
 plt.plot(network.generators_t.p['OCGT'][plot_summer_delay:plot_summer_delay+plot_time], color=tech_colors['OCGT'], label='gas (OCGT)')
 plt.plot(network.generators_t.p['nuclear'][plot_summer_delay:plot_summer_delay+plot_time], color=tech_colors['nuclear'], label='Nuclear')
-plt.legend(fancybox=True, shadow=True, loc='best')
+plt.legend(fancybox=True, ncol=3,shadow=True, loc='best')
 plt.title('Electricity Dispatch (In summer)')
 plt.xlabel('Hour')
 plt.ylabel('Power (MW)')
+plt.grid(alpha=0.3)
 plt.show()
 
 # Pie chart for energy mix
@@ -878,7 +882,24 @@ plt.show()
 
 
 #%% -------------------------------------
-# POWER FLOW IN HOUR 1
+# Imbalances in each node in hour 1
+# ---------------------------------------
+# Pick first timestep
+t0 = network.snapshots[0]  # first time step
+print(f"The imbalances for the first hour {t0}: ")
+# Sum generation per bus
+gen_per_bus = network.generators_t.p.loc[t0].groupby(network.generators.bus).sum()
+# Sum load per bus
+load_per_bus = network.loads_t.p.loc[t0].groupby(network.loads.bus).sum()
+# Imbalance = generation - load at each bus
+imbalances = gen_per_bus - load_per_bus
+
+for bus, injection in imbalances.items():
+    print(f"{bus}: {injection:.2f} MWh")
+
+
+#%% -------------------------------------
+# STEP 5: Power flows in first hour
 # ---------------------------------------
 
 power_flow = network.lines_t.p0.loc['2015-01-01 00:00:00']
@@ -886,5 +907,19 @@ power_flow = network.lines_t.p0.loc['2015-01-01 00:00:00']
 print("The powerflows for the first hour of the year are:")
 print(power_flow)
 
-# %%
+# Plot that shows import and epxort in time step 1 in a plot
+net_export_t0 = {}
+for line in network.lines.index:
+    bus0 = network.lines.loc[line, 'bus0']
+    bus1 = network.lines.loc[line, 'bus1']
+    flow = network.lines_t.p0.loc[t0, line]
+    net_export_t0[bus0] = net_export_t0.get(bus0, 0) - flow
+    net_export_t0[bus1] = net_export_t0.get(bus1, 0) + flow
+plt.bar(net_export_t0.keys(), net_export_t0.values(), color='skyblue')
+plt.axhline(0, color='black', linewidth=0.8)
+plt.ylabel('Net export (MW, positive = exporter)')
+plt.title('Net Export per Country (First Hour)')
+plt.show()
 
+# Plot first-hour trade and flow figures (bars + map).
+plot_first_hour_trade_and_flow(network, t0=t0, show_demand_generation=True, extent=(1, 15, 40, 55))
