@@ -75,7 +75,7 @@ network.add("Generator", "solar", bus="FR", p_nom_extendable=True,
             p_max_pu=CF_solar.values, overwrite=True)
 
 # Add OCGT generator
-capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033)  # in €/MW
+capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033) # in €/MW
 fuel_cost = 21.6  # in €/MWh_th # set multiplier for storage case?
 efficiency = 0.39
 marginal_cost_OCGT = fuel_cost / efficiency  # in €/MWh_el
@@ -359,6 +359,11 @@ largest_difference = df_costs['total_cost_M€'].max() / df_costs['total_cost_M�
 print("The largest percentage difference between worst and best year is "+str(round(largest_difference,2))+"%")
 
 
+
+
+
+
+
 #%% #######################################
 ###### STEP 3 #############################
 ###########################################
@@ -367,12 +372,22 @@ network.model.solver_model = None
 
 network_storage = network.copy()
 
+# OCGT generator fuel cost is changed
+capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033)  # in €/MW
+fuel_cost = 21.6 * 1.2 # in €/MWh_th # set multiplier for storage case?
+efficiency = 0.39
+marginal_cost_OCGT = fuel_cost / efficiency  # in €/MWh_el
+network_storage.add("Generator", "OCGT", bus="FR", p_nom_extendable=True,
+            carrier="gas", capital_cost=capital_cost_OCGT, marginal_cost=marginal_cost_OCGT,
+            overwrite=True)
+
+
 # Add storage unit
-lifetime = 60
-capital_cost_hydro = annuity(60, 0.07) * 1994 * 10**3
+lifetime = 80
+capital_cost_hydro = annuity(lifetime, 0.07) * 1994 * 10**3 * 0.8
 fixed_o_m = 16.46 * 10**3  # EUR/MW/yr
 network_storage.add("StorageUnit", "Pumped Hydro", bus="FR", p_nom_extendable=True,
-            max_hours=11, efficiency_store=0.95, efficiency_dispatch=0.85,
+            max_hours=30, efficiency_store=0.95, efficiency_dispatch=0.85,
             capital_cost=capital_cost_hydro + fixed_o_m, marginal_cost=0, overwrite=True)
 
 print("\nStorage unit added: Pumped Hydro")
@@ -389,17 +404,20 @@ print(f"Optimal Pumped Hydro Capacity: {p_nom_storage:.2f} MW")
 
 # 3. Plot Dispatch with Storage (First week of the last year)
 plot_time = 24 * 7
+delay = 24 * 30 * 6 + 24*15
 plt.figure(figsize=(12, 6))
 
 # Plot Demand and Generation
-plt.plot(network_storage.loads_t.p['load'][:plot_time], color='black', label='Demand', lw=2)
-plt.plot(network_storage.generators_t.p['onshorewind'][:plot_time], color='blue', label='Onshore Wind', alpha=0.7)
-plt.plot(network_storage.generators_t.p['solar'][:plot_time], color='orange', label='Solar', alpha=0.7)
-plt.plot(network_storage.generators_t.p['nuclear'][:plot_time], color='brown', label='Nuclear', alpha=0.7)
+plt.plot(network_storage.loads_t.p['load'][delay:delay+plot_time], color='black', label='Demand', lw=2)
+plt.plot(network_storage.generators_t.p['onshorewind'][delay:delay+plot_time], color='blue', label='Onshore Wind', alpha=0.7)
+plt.plot(network_storage.generators_t.p['solar'][delay:delay+plot_time], color='orange', label='Solar', alpha=0.7)
+plt.plot(network_storage.generators_t.p['nuclear'][delay:delay+plot_time], color='brown', label='Nuclear', alpha=0.7)
+plt.plot(network_storage.generators_t.p['OCGT'][delay:delay+plot_time], color='red', label='OCGT', alpha=0.7)
+
 
 # Plot Storage Dispatch (Positive is discharging, Negative is charging)
-plt.fill_between(network_storage.snapshots[:plot_time], 
-                 network_storage.storage_units_t.p[:plot_time]["Pumped Hydro"], 
+plt.fill_between(network_storage.snapshots[delay:delay+plot_time], 
+                 network_storage.storage_units_t.p[delay:delay+plot_time]["Pumped Hydro"], 
                  color='teal', label='Storage Dispatch', alpha=0.5)
 
 plt.legend(loc='upper right')
@@ -410,11 +428,11 @@ plt.show()
 
 # 4. Plot State of Charge (How full the "battery" is)
 plt.figure(figsize=(12, 4))
-plt.plot(network_storage.storage_units_t.state_of_charge[:plot_time]["Pumped Hydro"], color='teal')
+plt.plot(network_storage.storage_units_t.state_of_charge[delay:delay+plot_time]["Pumped Hydro"], color='teal')
 plt.title('Pumped Hydro State of Charge (MWh)')
 plt.ylabel('Energy Stored (MWh)')
-plt.fill_between(network_storage.snapshots[:plot_time], 
-                 network_storage.storage_units_t.state_of_charge[:plot_time]["Pumped Hydro"], 
+plt.fill_between(network_storage.snapshots[delay:delay+plot_time], 
+                 network_storage.storage_units_t.state_of_charge[delay:delay+plot_time]["Pumped Hydro"], 
                  color='teal', alpha=0.2)
 plt.grid(True, alpha=0.3)
 plt.show()
@@ -501,16 +519,17 @@ plt.tight_layout()
 plt.show()
 
 # ── 5. Dispatch time series comparison (first week) ──────────────────────────
+delay = 0
 plot_time = 24 * 7
 fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
 
 for ax, net, title in zip(axes,
                            [network, network_storage],
                            ['Without Storage', 'With Storage']):
-    ax.plot(net.loads_t.p['load'][:plot_time].values,
+    ax.plot(net.loads_t.p['load'][delay:delay+plot_time].values,
             color='black', label='Demand', lw=2)
     for g, label, color in zip(gens, gen_labels, gen_colors):
-        ax.plot(net.generators_t.p[g][:plot_time].values,
+        ax.plot(net.generators_t.p[g][delay:delay+plot_time].values,
                 label=label, color=color, alpha=0.8)
     if title == 'With Storage':
         ax.fill_between(range(plot_time),
@@ -608,18 +627,18 @@ plt.show()
 ####################################
 network.model.solver_model = None
 
-
+network_nodes = network.copy()
 # Add neighboring countries as buses
-network.add("Bus", "DE", y=51.0, x=10.0, v_nom=400, carrier="AC")
-network.add("Bus", "CH", y=46.8, x=8.3, v_nom=400, carrier="AC")
-network.add("Bus", "IT", y=43.0, x=12.5, v_nom=400, carrier="AC")
-network.add("Bus", "BE", y=50.8, x=4.4, v_nom=400, carrier="AC")
+network_nodes.add("Bus", "DE", y=51.0, x=10.0, v_nom=400, carrier="AC")
+network_nodes.add("Bus", "CH", y=46.8, x=8.3, v_nom=400, carrier="AC")
+network_nodes.add("Bus", "IT", y=43.0, x=12.5, v_nom=400, carrier="AC")
+network_nodes.add("Bus", "BE", y=50.8, x=4.4, v_nom=400, carrier="AC")
 
 # Add load for neighboring countries
-network.add("Load", "DE_load", bus="DE", p_set=df_elec["DEU"].values)
-network.add("Load", "CH_load", bus="CH", p_set=df_elec["CHE"].values)
-network.add("Load", "IT_load", bus="IT", p_set=df_elec["ITA"].values)
-network.add("Load", "BE_load", bus="BE", p_set=df_elec["BEL"].values)
+network_nodes.add("Load", "DE_load", bus="DE", p_set=df_elec["DEU"].values)
+network_nodes.add("Load", "CH_load", bus="CH", p_set=df_elec["CHE"].values)
+network_nodes.add("Load", "IT_load", bus="IT", p_set=df_elec["ITA"].values)
+network_nodes.add("Load", "BE_load", bus="BE", p_set=df_elec["BEL"].values)
 
 
 
@@ -645,24 +664,24 @@ for bus, code in country_map.items():
     CF_wind_n  = CF_wind_n.values
     CF_solar_n = CF_solar_n.values
 
-    network.add("Generator", f"{bus}_wind", bus=bus,
+    network_nodes.add("Generator", f"{bus}_wind", bus=bus,
                 p_nom_extendable=True, carrier="onshorewind",
                 capital_cost=capital_cost_onshorewind, marginal_cost=0,
                 p_max_pu=CF_wind_n)
 
-    network.add("Generator", f"{bus}_solar", bus=bus,
+    network_nodes.add("Generator", f"{bus}_solar", bus=bus,
                 p_nom_extendable=True, carrier="solar",
                 capital_cost=capital_cost_solar, marginal_cost=0,
                 p_max_pu=CF_solar_n)
 
-    network.add("Generator", f"{bus}_OCGT", bus=bus,
+    network_nodes.add("Generator", f"{bus}_OCGT", bus=bus,
                 p_nom_extendable=True, carrier="gas",
                 capital_cost=capital_cost_OCGT,
                 marginal_cost=marginal_cost_OCGT)
 
 
 
-network.add("Carrier", "hydro", overwrite=True)
+network_nodes.add("Carrier", "hydro", overwrite=True)
 
 # Switzerland: hydropower (run-of-river()
 capex_hydro        = 2600 * 1000                          # €/MW
@@ -670,14 +689,14 @@ fixed_om_hydro     = 0.025 * capex_hydro                  # 2.5% of CAPEX/year
 capital_cost_hydro = annuity(80, 0.07) * capex_hydro + fixed_om_hydro
 
 # Swiss hydro average CF ~0.45 (roughly consistent with IEA annual stats)
-network.add("Generator", "CH_hydro", bus="CH",
+network_nodes.add("Generator", "CH_hydro", bus="CH",
             p_nom_extendable=True, carrier="hydro",
             capital_cost=capital_cost_hydro,
             marginal_cost=0,
             p_max_pu=1,         # constant — simple and defensible
             p_nom_max=df_elec["CHE"].mean()*0.65)
 
-network.add("Generator", "CH_nuclear", bus="CH",
+network_nodes.add("Generator", "CH_nuclear", bus="CH",
             p_nom_extendable=True, carrier="nuclear",
             capital_cost=capital_cost_nuclear,
             marginal_cost=6,
@@ -689,7 +708,7 @@ network.add("Generator", "CH_nuclear", bus="CH",
 
 
 # Belgium: nuclear
-network.add("Generator", "BE_nuclear", bus="BE",
+network_nodes.add("Generator", "BE_nuclear", bus="BE",
             p_nom_extendable=True, carrier="nuclear",
             capital_cost=capital_cost_nuclear,
             marginal_cost=6,
@@ -701,20 +720,20 @@ network.add("Generator", "BE_nuclear", bus="BE",
 
 
 # France connections
-network.add("Line", "FR-CH", bus0="FR", bus1="CH", s_nom=3200, x=0.1, r=0)
-network.add("Line", "FR-DE", bus0="FR", bus1="DE", s_nom=3000, x=0.1, r=0)
-network.add("Line", "FR-IT", bus0="FR", bus1="IT", s_nom=4000, x=0.1, r=0)
-network.add("Line", "FR-BE", bus0="FR", bus1="BE", s_nom=2000, x=0.1, r=0)
+network_nodes.add("Line", "FR-CH", bus0="FR", bus1="CH", s_nom=3200, x=0.1, r=0)
+network_nodes.add("Line", "FR-DE", bus0="FR", bus1="DE", s_nom=3000, x=0.1, r=0)
+network_nodes.add("Line", "FR-IT", bus0="FR", bus1="IT", s_nom=4000, x=0.1, r=0)
+network_nodes.add("Line", "FR-BE", bus0="FR", bus1="BE", s_nom=2000, x=0.1, r=0)
 
 # extra lines to create a cycles
-network.add("Line", "CH-IT", bus0="CH", bus1="IT", s_nom=4200, x=0.1, r=0)
+network_nodes.add("Line", "CH-IT", bus0="CH", bus1="IT", s_nom=4200, x=0.1, r=0)
 
 
 # simple plot
 fig = plt.figure(figsize=(5,5))
 ax = plt.axes(projection=ccrs.PlateCarree())
 
-network.plot(
+network_nodes.plot(
     ax=ax,
     margin=0.2,
     bus_sizes=0.2,
@@ -738,7 +757,7 @@ ax.add_feature(cfeature.OCEAN, facecolor="lightblue")
 ax.add_feature(cfeature.LAND, facecolor="whitesmoke")
 ax.add_feature(cfeature.COASTLINE)
 
-network.plot(
+network_nodes.plot(
     ax=ax,
     margin=0.2,
     bus_sizes=0.5,
@@ -750,28 +769,28 @@ network.plot(
 )
 
 ax.set_extent([-5, 15, 40, 55])
-for bus in network.buses.index:
-    x = network.buses.loc[bus, "x"]
-    y = network.buses.loc[bus, "y"]
+for bus in network_nodes.buses.index:
+    x = network_nodes.buses.loc[bus, "x"]
+    y = network_nodes.buses.loc[bus, "y"]
     ax.text(x, y, bus)
 
 plt.show()
 
 #%%
 # Run optimization
-network.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
+network_nodes.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
 
 # Power flows
-print(network.lines_t.p0)  # power flow from bus0 to bus1
+print(network_nodes.lines_t.p0)  # power flow from bus0 to bus1
 
 # Generator dispatch
-print(network.generators_t.p)
+print(network_nodes.generators_t.p)
 
 # Prices (dual of nodal balance)
-print(network.buses_t.marginal_price)
+print(network_nodes.buses_t.marginal_price)
 # %%
 # Line loading (how congested each line is)
-line_loading = network.lines_t.p0.abs() / network.lines.s_nom * 100  # in %
+line_loading = network_nodes.lines_t.p0.abs() / network_nodes.lines.s_nom * 100  # in %
 line_loading.mean().plot(kind='bar', figsize=(10,5), title='Average Line Loading (%)')
 plt.ylabel('Loading (%)')
 plt.axhline(100, color='red', linestyle='--', label='Capacity limit')
@@ -780,11 +799,11 @@ plt.show()
 
 #%%
 # Average marginal price per bus
-avg_prices = network.buses_t.marginal_price.mean()
+avg_prices = network_nodes.buses_t.marginal_price.mean()
 print(avg_prices)
 
 # Price over time per bus
-network.buses_t.marginal_price.plot(figsize=(12,5), title='Nodal Marginal Prices Over Time')
+network_nodes.buses_t.marginal_price.plot(figsize=(12,5), title='Nodal Marginal Prices Over Time')
 plt.ylabel('Price (€/MWh)')
 plt.show()
 
@@ -793,7 +812,7 @@ plt.show()
 start = '2015-01-19'
 end   = '2015-01-21'  # first week of January
 
-prices_period = network.buses_t.marginal_price.loc[start:end]
+prices_period = network_nodes.buses_t.marginal_price.loc[start:end]
 
 prices_period.plot(figsize=(12, 5), title=f'Nodal Marginal Prices ({start} to {end})')
 plt.ylabel('Price (€/MWh)')
@@ -802,8 +821,8 @@ plt.show()
 
 # Flow duration curve — how often each line is congested
 fig, ax = plt.subplots(figsize=(10, 5))
-for line in network.lines.index:
-    loading = network.lines_t.p0[line].abs() / network.lines.s_nom[line] * 100
+for line in network_nodes.lines.index:
+    loading = network_nodes.lines_t.p0[line].abs() / network_nodes.lines.s_nom[line] * 100
     sorted_loading = np.sort(loading.values)[::-1]
     ax.plot(sorted_loading, label=line)
 ax.axhline(100, color='red', linestyle='--', label='Capacity limit')
@@ -814,11 +833,11 @@ ax.legend()
 plt.show()
 
 # Net export per country (positive = net exporter)
-net_export = pd.DataFrame(index=network.snapshots)
-for line in network.lines.index:
-    bus0 = network.lines.loc[line, 'bus0']
-    bus1 = network.lines.loc[line, 'bus1']
-    flow = network.lines_t.p0[line]
+net_export = pd.DataFrame(index=network_nodes.snapshots)
+for line in network_nodes.lines.index:
+    bus0 = network_nodes.lines.loc[line, 'bus0']
+    bus1 = network_nodes.lines.loc[line, 'bus1']
+    flow = network_nodes.lines_t.p0[line]
     net_export[bus0] = net_export.get(bus0, 0) - flow
     net_export[bus1] = net_export.get(bus1, 0) + flow
 
@@ -832,10 +851,10 @@ plt.show()
 
 # Stacked bar: total annual generation per technology per country
 gen_by_bus = {}
-for gen in network.generators.index:
-    bus = network.generators.loc[gen, 'bus']
-    carrier = network.generators.loc[gen, 'carrier']
-    total = float(network.generators_t.p[gen].sum())
+for gen in network_nodes.generators.index:
+    bus = network_nodes.generators.loc[gen, 'bus']
+    carrier = network_nodes.generators.loc[gen, 'carrier']
+    total = float(network_nodes.generators_t.p[gen].sum())
     gen_by_bus.setdefault(bus, {})
     gen_by_bus[bus][carrier] = gen_by_bus[bus].get(carrier, 0) + total
 
@@ -860,10 +879,10 @@ plt.show()
 
 # Installed capacity per country and technology
 cap_by_bus = {}
-for gen in network.generators.index:
-    bus = network.generators.loc[gen, 'bus']
-    carrier = network.generators.loc[gen, 'carrier']
-    cap = float(network.generators.p_nom_opt[gen])
+for gen in network_nodes.generators.index:
+    bus = network_nodes.generators.loc[gen, 'bus']
+    carrier = network_nodes.generators.loc[gen, 'carrier']
+    cap = float(network_nodes.generators.p_nom_opt[gen])
     cap_by_bus.setdefault(bus, {})
     cap_by_bus[bus][carrier] = cap_by_bus[bus].get(carrier, 0) + cap
 
@@ -885,12 +904,12 @@ plt.show()
 # Imbalances in each node in hour 1
 # ---------------------------------------
 # Pick first timestep
-t0 = network.snapshots[0]  # first time step
+t0 = network_nodes.snapshots[0]  # first time step
 print(f"The imbalances for the first hour {t0}: ")
 # Sum generation per bus
-gen_per_bus = network.generators_t.p.loc[t0].groupby(network.generators.bus).sum()
+gen_per_bus = network_nodes.generators_t.p.loc[t0].groupby(network_nodes.generators.bus).sum()
 # Sum load per bus
-load_per_bus = network.loads_t.p.loc[t0].groupby(network.loads.bus).sum()
+load_per_bus = network_nodes.loads_t.p.loc[t0].groupby(network_nodes.loads.bus).sum()
 # Imbalance = generation - load at each bus
 imbalances = gen_per_bus - load_per_bus
 
@@ -902,17 +921,17 @@ for bus, injection in imbalances.items():
 # STEP 5: Power flows in first hour
 # ---------------------------------------
 
-power_flow = network.lines_t.p0.loc['2015-01-01 00:00:00']
+power_flow = network_nodes.lines_t.p0.loc['2015-01-01 00:00:00']
 
 print("The powerflows for the first hour of the year are:")
 print(power_flow)
 
-# Plot that shows import and epxort in time step 1 in a plot
+# Plot that shows import and export in time step 1 in a plot
 net_export_t0 = {}
-for line in network.lines.index:
-    bus0 = network.lines.loc[line, 'bus0']
-    bus1 = network.lines.loc[line, 'bus1']
-    flow = network.lines_t.p0.loc[t0, line]
+for line in network_nodes.lines.index:
+    bus0 = network_nodes.lines.loc[line, 'bus0']
+    bus1 = network_nodes.lines.loc[line, 'bus1']
+    flow = network_nodes.lines_t.p0.loc[t0, line]
     net_export_t0[bus0] = net_export_t0.get(bus0, 0) - flow
     net_export_t0[bus1] = net_export_t0.get(bus1, 0) + flow
 plt.bar(net_export_t0.keys(), net_export_t0.values(), color='skyblue')
@@ -922,4 +941,4 @@ plt.title('Net Export per Country (First Hour)')
 plt.show()
 
 # Plot first-hour trade and flow figures (bars + map).
-plot_first_hour_trade_and_flow(network, t0=t0, show_demand_generation=True, extent=(1, 15, 40, 55))
+plot_first_hour_trade_and_flow(network_nodes, t0=t0, show_demand_generation=True, extent=(1, 15, 40, 55))
