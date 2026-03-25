@@ -372,19 +372,10 @@ network.model.solver_model = None
 
 network_storage = network.copy()
 
-# OCGT generator fuel cost is changed
-capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033)  # in €/MW
-fuel_cost = 21.6 * 1.2 # in €/MWh_th # set multiplier for storage case?
-efficiency = 0.39
-marginal_cost_OCGT = fuel_cost / efficiency  # in €/MWh_el
-network_storage.add("Generator", "OCGT", bus="FR", p_nom_extendable=True,
-            carrier="gas", capital_cost=capital_cost_OCGT, marginal_cost=marginal_cost_OCGT,
-            overwrite=True)
-
 
 # Add storage unit
 lifetime = 80
-capital_cost_hydro = annuity(lifetime, 0.07) * 1994 * 10**3 * 0.8
+capital_cost_hydro = annuity(lifetime, 0.07) * 1994 * 10**3 * 0.75
 fixed_o_m = 16.46 * 10**3  # EUR/MW/yr
 network_storage.add("StorageUnit", "Pumped Hydro", bus="FR", p_nom_extendable=True,
             max_hours=30, efficiency_store=0.95, efficiency_dispatch=0.85,
