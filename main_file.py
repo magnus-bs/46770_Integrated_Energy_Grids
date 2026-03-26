@@ -375,7 +375,7 @@ network_storage = network.copy()
 
 # Add storage unit
 lifetime = 80
-capital_cost_hydro = annuity(lifetime, 0.07) * 1994 * 10**3 * 0.75
+capital_cost_hydro = annuity(lifetime, 0.07) * 1994 * 10**3 * 0.7
 fixed_o_m = 16.46 * 10**3  # EUR/MW/yr
 network_storage.add("StorageUnit", "Pumped Hydro", bus="FR", p_nom_extendable=True,
             max_hours=30, efficiency_store=0.95, efficiency_dispatch=0.85,
@@ -441,10 +441,15 @@ plt.show()
 
 
 
-
 #%% ----------------------------
 # COMPARISON
 # ----------------------------
+
+# ── Font sizes (easy to change) ───────────────────────────────────────────────
+FS_SUPTITLE  = 24
+FS_TITLE     = 18
+FS_LABEL     = 14
+FS_AUTOPCT   = 11
 
 # ── 1. Cost comparison ────────────────────────────────────────────────────────
 total_demand = float(network.loads_t.p.sum())
@@ -481,14 +486,22 @@ gen_colors = [tech_colors['onshorewind'], tech_colors['solar'],
 sizes_base    = [float(network.generators_t.p[g].sum()) for g in gens]
 sizes_storage = [float(network_storage.generators_t.p[g].sum()) for g in gens]
 
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+fig, axes = plt.subplots(1, 2, figsize=(9, 5))
 for ax, sizes, title in zip(axes,
                              [sizes_base, sizes_storage],
                              ['Without Storage', 'With Storage']):
     ax.pie(sizes, labels=gen_labels, colors=gen_colors,
-           wedgeprops={'linewidth': 0}, autopct='%1.1f%%')
-    ax.set_title(title)
-plt.suptitle('Electricity Mix Comparison')
+           wedgeprops={'linewidth': 0}, autopct='%1.1f%%',
+           textprops={'fontsize': FS_LABEL},
+           pctdistance=0.75,
+           labeldistance=1.1)
+    # Increase autopct font size separately
+    for text in ax.texts:
+        if '%' in text.get_text():
+            text.set_fontsize(FS_AUTOPCT)
+    ax.set_title(title, fontsize=FS_TITLE)
+
+#plt.suptitle('Electricity Mix Comparison', fontsize=FS_SUPTITLE)
 plt.tight_layout()
 plt.show()
 
