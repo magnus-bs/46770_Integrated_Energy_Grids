@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import seaborn as sns
 
 
 def plot_first_hour_trade_and_flow(
@@ -162,3 +163,213 @@ def plot_first_hour_trade_and_flow(
     plt.tight_layout()
     plt.show()
 
+
+def interannual_var_boxplots(df_results, figsize = (8,7), dpi = 300):
+    # Set professional style
+    sns.set(style="whitegrid", context="talk")
+
+    # Define professional color palettes
+    tech_colors = {
+        'OCGT': '#4c72b0',      # muted blue
+        'onshorewind': '#55a868', # muted green
+        'solar': '#c44e52',        # muted red
+        'nuclear': '#8172b3'    # muted purple
+    }
+
+    year_palette = sns.color_palette("coolwarm", n_colors=df_results['year'].nunique())
+
+    plt.figure(figsize=figsize, dpi=dpi)
+
+    # Boxplot for distribution
+    ax = sns.boxplot(
+        data=df_results,
+        x='generator',
+        y='p_nom',
+        palette=tech_colors,
+        showfliers=False,
+        width=0.6,
+        boxprops=dict(alpha=0.6)
+    )
+
+    # Swarmplot for individual years
+    sns.swarmplot(
+        data=df_results,
+        x='generator',
+        y='p_nom',
+        hue='year',
+        palette=year_palette,
+        size=11,
+        dodge=True,
+        alpha=0.85,
+        ax=ax
+    )
+
+    plt.ylabel("Optimal Capacity (MW)")
+    plt.xlabel("Generator")
+    #plt.title("Optimal Capacity Across Weather Years")
+
+    # Rotate x-ticks for readability
+    plt.xticks(rotation=30)
+
+    # Place legend neatly outside
+    handles, labels = ax.get_legend_handles_labels()
+    plt.legend(handles, labels, title="Year", bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0., frameon=False)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def weekly_dispatch_plot(network, tech_colors, start_day, storage = False, figsize = (15,5), dpi = 300):
+    # Plot dispatch (In winter, first week)
+    plot_time=24*7
+    plot_delay = start_day
+    # Plot dispatch (In summer)
+    plt.figure(figsize=figsize, dpi = dpi)
+    plt.plot(network.loads_t.p['load'][plot_delay:plot_delay+plot_time], color=tech_colors['demand'], label='demand')
+    plt.plot(network.generators_t.p['onshorewind'][plot_delay:plot_delay+plot_time], color=tech_colors['onshorewind'], label='onshore wind')
+    plt.plot(network.generators_t.p['solar'][plot_delay:plot_delay+plot_time], color=tech_colors['solar'], label='solar')
+    plt.plot(network.generators_t.p['OCGT'][plot_delay:plot_delay+plot_time], color=tech_colors['OCGT'], label='gas (OCGT)')
+    plt.plot(network.generators_t.p['nuclear'][plot_delay:plot_delay+plot_time], color=tech_colors['nuclear'], label='Nuclear')
+
+    if storage:
+        # Plot Storage Dispatch (Positive is discharging, Negative is charging)
+        plt.fill_between(network.snapshots[plot_delay:plot_delay+plot_time], 
+                        network.storage_units_t.p[plot_delay:plot_delay+plot_time]["Pumped Hydro"], 
+                        color='teal', label='Storage Dispatch', alpha=0.5)
+
+        plt.legend(loc='upper right')
+        plt.title('System Dispatch with Pumped Hydro Storage (One Week)')
+        plt.ylabel('Power (MW)')
+        plt.grid(True, alpha=0.3)
+        plt.show()
+    else:
+        plt.legend(fancybox=True, ncol=3,shadow=True, loc='best')
+        plt.title('Electricity Dispatch (In summer)')
+        plt.xlabel('Hour')
+        plt.ylabel('Power (MW)')
+        plt.grid(alpha=0.3)
+        plt.show()
+
+
+def energy_mix_piechart(network, colors, labels, full_year = True, dpi = 300):
+    if full_year:
+        # Pie chart for energy mix
+        labels = ['Onshore Wind', 'Solar', 'Gas (OCGT)', 'Nuclear']
+        sizes = [float(network.generators_t.p['onshorewind'].sum()),
+                float(network.generators_t.p['solar'].sum()),
+                float(network.generators_t.p['OCGT'].sum()),
+                float(network.generators_t.p['nuclear'].sum())]
+        plt.figure(dpi = 300)
+        plt.pie(sizes, colors=colors, labels=labels, wedgeprops={'linewidth': 0})
+        plt.axis('equal')
+        plt.title('Electricity Mix (Full year)', y=1.07)
+        plt.show()
+    else:
+        # Define winter and summer months
+        winter_months = [1, 2, 12]  # Jan, Feb, Dec
+        summer_months = [6, 7, 8]   # Jun, Jul, Aug
+
+        snapshots = pd.DatetimeIndex(network.snapshots)
+
+        winter_snaps = snapshots[snapshots.month.isin(winter_months)]
+        summer_snaps = snapshots[snapshots.month.isin(summer_months)]
+
+        # Sum generation for winter and summer
+        winter_gen = network.generators_t.p.loc[winter_snaps].sum()
+        summer_gen = network.generators_t.p.loc[summer_snaps].sum()
+
+        # Prepare sizes for pie charts
+        winter_sizes = [
+            float(winter_gen['onshorewind']),
+            float(winter_gen['solar']),
+            float(winter_gen['OCGT']),
+            float(winter_gen['nuclear'])
+        ]
+
+        summer_sizes = [
+            float(summer_gen['onshorewind']),
+            float(summer_gen['solar']),
+            float(summer_gen['OCGT']),
+            float(summer_gen['nuclear'])
+        ]
+
+        # --- Winter electricity mix ---
+        plt.figure(dpi = dpi)
+        plt.pie(winter_sizes, colors=colors, labels=labels, wedgeprops={'linewidth': 0})
+        plt.axis('equal')
+        plt.title('Electricity Mix (Winter)', y=1.07)
+        plt.show()
+
+        # --- Summer electricity mix ---
+        plt.figure(dpi = dpi)
+        plt.pie(summer_sizes, colors=colors, labels=labels, wedgeprops={'linewidth': 0})
+        plt.axis('equal')
+        plt.title('Electricity Mix (Summer)', y=1.07)
+        plt.show()
+
+
+def duration_curves(network, tech_colors, figsize = (12,8), dpi = 400):
+    plt.figure(figsize=figsize, dpi = dpi)
+
+    for gen in network.generators_t.p.columns:
+        sorted_values = np.sort(network.generators_t.p[gen].values)[::-1]  # sort descending
+        hours = np.arange(1, len(sorted_values)+1)
+        plt.plot(hours, sorted_values, label=gen, color=tech_colors.get(gen, 'gray'))
+
+    plt.xlabel("Hours per year (sorted)", fontsize = 14)
+    plt.ylabel("Power (MW)", fontsize = 14)
+    #plt.title("Annual Generation Duration Curve")
+    plt.legend(fancybox=True, shadow=True, ncol = 4, loc='best')
+    plt.grid(True, alpha=0.3)
+    plt.show()
+
+
+def annual_capacities_and_dispatch(df_results, tech_colors):
+    # Average optimal capacity per year
+    plt.figure(figsize=(10,5), dpi = 300)
+    sns.barplot(data=df_results, x='year', y='p_nom', hue='generator', palette=tech_colors)
+    plt.ylabel("Optimal Capacity (MW)")
+    plt.title("Optimal Generator Capacities for Different Weather Years")
+    plt.show()
+
+    # Variability of dispatch per year
+    plt.figure(figsize=(10,5), dpi = 300)
+    sns.barplot(data=df_results, x='year', y='dispatch_std', hue='generator', palette=tech_colors)
+    plt.ylabel("Dispatch Standard Deviation (MW)")
+    plt.title("Generator Dispatch Variability for Different Weather Years")
+    plt.show()
+
+    # Stacked Bar Chart: Annual Dispatch per Technology per Year
+
+    # Sum total dispatch per year and per generator
+    dispatch_per_year = df_results.groupby(['year', 'generator'])['total_dispatch'].sum().unstack().fillna(0)
+
+    dispatch_per_year = df_results.groupby(['year', 'generator'])['total_dispatch'].sum().unstack().fillna(0)
+
+    dispatch_per_year.plot(
+        kind='bar',
+        stacked=True,
+        color=[tech_colors.get(col, 'gray') for col in dispatch_per_year.columns],
+        figsize=(10,6)
+    )
+    plt.ylabel("Total Annual Dispatch (MWh)")
+    plt.xlabel("Year")
+    plt.title("Annual Electricity Dispatch per Technology")
+    plt.legend(title='Generator', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plt.show()
+
+
+def weekly_soc_plot(network_storage, start_day):
+    delay = start_day
+    plot_time = 24*7
+
+    plt.figure(figsize=(12, 4))
+    plt.plot(network_storage.storage_units_t.state_of_charge[delay:delay+plot_time]["Pumped Hydro"], color='teal')
+    plt.title('Pumped Hydro State of Charge (MWh)')
+    plt.ylabel('Energy Stored (MWh)')
+    plt.fill_between(network_storage.snapshots[delay:delay+plot_time], 
+                    network_storage.storage_units_t.state_of_charge[delay:delay+plot_time]["Pumped Hydro"], 
+                    color='teal', alpha=0.2)
+    plt.grid(True, alpha=0.3)
+    plt.show()
