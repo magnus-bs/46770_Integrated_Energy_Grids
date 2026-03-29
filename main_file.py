@@ -81,7 +81,6 @@ network.add("Generator", "OCGT", bus="electricity bus", p_nom_extendable=True,
             carrier="gas", capital_cost=capital_cost_OCGT, marginal_cost=marginal_cost_OCGT,
             overwrite=True)
 
-
 # Add nuclear generator
 average_demand = df_elec[country].mean()  # in MW
 capital_cost_nuclear = annuity(60, 0.07) * 3460 * 1000 * (1 + 0.03)
@@ -95,7 +94,7 @@ network.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
 
 print("Optimization Results (No CO2 Limit):")
 print(f"Total cost: {network.objective / 1000000:.2f} million €")
-print(f"Levelized cost: {network.objective / float(network.loads_t.p.sum()):.2f} €/MWh")
+print(f"Levelized cost: {network.objective / (network.loads_t.p.values.sum()):.2f} €/MWh")
 print("Optimal capacities (MW):")
 for gen in network.generators.index:
     print(f"{gen}: {float(network.generators.p_nom_opt[gen]):.2f}")
@@ -190,18 +189,18 @@ plt.title('Electricity Mix (Summer)', y=1.07)
 plt.show()
 """
 
-# Load duration curves
-plt.figure(figsize=(10,6))
+#%% Load duration curves
+plt.figure(figsize=(14,6), dpi = 400)
 
 for gen in network.generators_t.p.columns:
     sorted_values = np.sort(network.generators_t.p[gen].values)[::-1]  # sort descending
     hours = np.arange(1, len(sorted_values)+1)
     plt.plot(hours, sorted_values, label=gen, color=tech_colors.get(gen, 'gray'))
 
-plt.xlabel("Hours per year (sorted)")
-plt.ylabel("Power output (MW)")
-plt.title("Annual Generation Duration Curve")
-plt.legend(fancybox=True, shadow=True, loc='best')
+plt.xlabel("Hours per year (sorted)", fontsize = 14)
+plt.ylabel("Power (MW)", fontsize = 14)
+#plt.title("Annual Generation Duration Curve")
+plt.legend(fancybox=True, shadow=True, ncol = 4, loc='best')
 plt.grid(True, alpha=0.3)
 plt.show()
 
