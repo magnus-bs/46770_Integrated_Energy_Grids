@@ -373,3 +373,189 @@ def weekly_soc_plot(network_storage, start_day):
                     color='teal', alpha=0.2)
     plt.grid(True, alpha=0.3)
     plt.show()
+
+def gen_cap_mix_stacked(df_gen_bus, df_cap_bus, df_demand, carrier_colors):
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), dpi = 300)
+
+    # --- Generation (TWh) ---
+    df_gen_bus.plot(
+        kind="bar",
+        stacked=True,
+        color=[carrier_colors.get(c, "gray") for c in df_gen_bus.columns],
+        ax=axes[0]
+    )
+    axes[0].set_ylabel("Annual generation (TWh)")
+    axes[0].set_title("Generation Mix per Country")
+    axes[0].legend().remove()  # remove duplicate legend
+    
+    # --- Demand markers ---
+    x_positions = range(len(df_gen_bus.index))
+    axes[0].scatter(x_positions, df_demand.reindex(df_gen_bus.index),
+                    color="black", zorder=5, marker="_", s=1800, linewidths=2, label="Demand")
+    axes[0].legend(["Demand"])
+    
+    # --- Capacity (GW) ---
+    df_cap_bus.plot(
+        kind="bar",
+        stacked=True,
+        color=[carrier_colors.get(c, "gray") for c in df_cap_bus.columns],
+        ax=axes[1]
+    )
+    axes[1].set_ylabel("Installed capacity (GW)")
+    axes[1].set_title("Optimal Capacity per Country")
+    axes[1].legend(loc = 'best', ncol = 2)
+
+    # --- Final layout tweaks ---
+    for ax in axes:
+        ax.tick_params(axis="x", rotation=0)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def avg_annual_net_export_bar_plot(network_nodes):
+    plt.figure(figsize=(12,6))
+    # Net export per country (positive = net exporter)
+    net_export = pd.DataFrame(index=network_nodes.snapshots)
+    for line in network_nodes.lines.index:
+        bus0 = network_nodes.lines.loc[line, 'bus0']
+        bus1 = network_nodes.lines.loc[line, 'bus1']
+        flow = network_nodes.lines_t.p0[line]
+        net_export[bus0] = net_export.get(bus0, 0) + flow
+        net_export[bus1] = net_export.get(bus1, 0) - flow
+
+    plt.bar(net_export.mean().index, net_export.mean().values)
+    plt.ylabel('Net export (MW, positive = exporter)')
+    plt.axhline(0, color='black', linewidth=0.8)
+    plt.show()
+
+
+def flow_matrix_heatmap(network_nodes):
+    countries = list(network_nodes.buses.index)
+    flow_matrix = pd.DataFrame(0.0, index=countries, columns=countries)
+
+    for line in network_nodes.lines.index:
+        bus0 = network_nodes.lines.loc[line, 'bus0']
+        bus1 = network_nodes.lines.loc[line, 'bus1']
+        avg_flow = network_nodes.lines_t.p0[line].sum()
+        flow_matrix.loc[bus0, bus1] += avg_flow/10**6
+        flow_matrix.loc[bus1, bus0] -= avg_flow/10**6
+
+    fig, ax = plt.subplots(figsize=(7, 6), dpi = 300)
+    sns.heatmap(flow_matrix, annot=True, fmt=".1f", cmap="RdBu_r", center=0, ax=ax)
+    #ax.set_title("Total Power Flow (MW): row → column (positive = export)")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_energy_mix_comparison(network, network_storage, gens, labels, colors):
+    def get_generation_totals(network, generators):
+        return [float(network.generators_t.p[g].sum()) for g in generators]
+    sizes_base = get_generation_totals(network, gens)
+    sizes_storage = get_generation_totals(network_storage, gens)
+
+    fig, axes = plt.subplots(1, 2, figsize=(9, 5))
+
+    for ax, sizes, title in zip(
+        axes,
+        [sizes_base, sizes_storage],
+        ["Without Storage", "With Storage"]
+    ):
+        ax.pie(
+            sizes,
+            labels=labels,
+            colors=colors,
+            autopct="%1.1f%%",
+            wedgeprops={"linewidth": 0},
+            pctdistance=0.75,
+            labeldistance=1.1
+        )
+        ax.set_title(title)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_dispatch_comparison(network, network_storage, gens, labels, colors):
+    dispatch_data = pd.DataFrame({
+        "Without storage": [float(network.generators_t.p[g].sum()) / 1e6 for g in gens],
+        "With storage":    [float(network_storage.generators_t.p[g].sum()) / 1e6 for g in gens]
+    }, index=labels)
+
+    dispatch_data.T.plot(
+        kind="bar",
+        stacked=True,
+        color=colors,
+        figsize=(8, 5)
+    )
+
+    plt.ylabel("Annual generation (TWh)")
+    plt.title("Annual Dispatch Comparison")
+    plt.xticks(rotation=0)
+    plt.legend(bbox_to_anchor=(1.05, 1))
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_dispatch_timeseries(network, network_storage, gens, labels, colors, hours=168):
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+
+    for ax, net, title in zip(
+        axes,
+        [network, network_storage],
+        ["Without Storage", "With Storage"]
+    ):
+        # Extract time index
+        time_index = net.loads_t.p.index[:hours]
+
+        # Demand
+        ax.plot(time_index,
+                net.loads_t.p["load"].iloc[:hours],
+                color="black", label="Demand", lw=2)
+
+        # Generators
+        for g, label, color in zip(gens, labels, colors):
+            ax.plot(time_index,
+                    net.generators_t.p[g].iloc[:hours],
+                    label=label, color=color, alpha=0.8)
+
+        # Storage
+        if title == "With Storage":
+            ax.fill_between(
+                time_index,
+                network_storage.storage_units_t.p["Pumped Hydro"].iloc[:hours],
+                color="teal",
+                alpha=0.5,
+                label="Storage"
+            )
+
+        ax.set_title(title)
+        ax.set_ylabel("Power (MW)")
+        ax.legend(fontsize=8)
+        ax.grid(alpha=0.3)
+
+    plt.xlabel("Time")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_storage(network_storage):
+    p_nom = network_storage.storage_units.p_nom_opt["Pumped Hydro"]
+
+    if p_nom <= 0:
+        print("No storage built.")
+        return
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
+
+    network_storage.storage_units_t.p["Pumped Hydro"].plot(
+        ax=axes[0], color="teal", title="Storage Dispatch (MW)"
+    )
+    axes[0].axhline(0, color="black", linewidth=0.5)
+
+    network_storage.storage_units_t.state_of_charge["Pumped Hydro"].plot(
+        ax=axes[1], color="teal", title="State of Charge (MWh)"
+    )
+
+    plt.tight_layout()
+    plt.show()
