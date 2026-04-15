@@ -611,13 +611,12 @@ for bus, injection in imbalances.items():
 # Power flows in first hour
 # ---------------------------------------
 
-power_flow = network_nodes.lines_t.p0.loc['2015-01-01 00:00:00']
+power_flow = network_nodes.lines_t.p0.loc[t0]
 
 print("The powerflows for the first hour of the year are:")
 print(power_flow)
 
 # Plot that shows import and export in time step 1 in a plot
-t0 = 1
 net_export_t0 = {}
 for line in network_nodes.lines.index:
     bus0 = network_nodes.lines.loc[line, 'bus0']
@@ -632,6 +631,7 @@ plt.title('Net Export per Country (First Hour)')
 plt.show()
 
 # Plot first-hour trade and flow figures (bars + map).
+importlib.reload(pf)
 pf.plot_first_hour_trade_and_flow(network_nodes, t0=t0, show_demand_generation=True, extent=(1, 15, 40, 55))
 
 
