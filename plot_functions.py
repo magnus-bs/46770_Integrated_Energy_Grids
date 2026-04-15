@@ -26,6 +26,7 @@ def plot_first_hour_trade_and_flow(
 
     # Flow map for selected hour.
     flows_t0 = network.lines_t.p0.loc[t0]
+    
     max_abs_flow = max(1.0, float(flows_t0.abs().max()))
     cmap = plt.cm.YlOrRd
     norm = plt.Normalize(vmin=0.0, vmax=max_abs_flow)
