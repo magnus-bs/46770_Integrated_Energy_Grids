@@ -32,7 +32,14 @@ df_solar.index = pd.to_datetime(df_solar.index, utc=True)
 warnings.filterwarnings('ignore')
 
 # Define consistent colors for technologies
-tech_colors = {'demand': 'black', 'onshorewind': 'blue', 'solar': 'orange', 'OCGT': 'red','nuclear': 'brown'}
+tech_colors = {
+    'demand': 'black',
+    "onshorewind": "#4C78A8",  # muted blue
+    "solar": "#F2A541",        # soft orange
+    "OCGT": "#E45756",          # soft red
+    "nuclear": "#9D755D",      # brown
+    "hydro": "#72B7B2"         # teal
+}
 
 def annuity(n, r):
     """ Calculate the annuity factor for an asset with lifetime n years and
@@ -56,8 +63,14 @@ country = 'FRA'
 # Add load to the bus
 network.add("Load", "load", bus="FR", p_set=df_elec[country].values)
 
+
+# OCGT emissins
+OCGT_efficiency = 0.39
+OCGT_emission_th = 0.19 # t_CO2/MWh_th
+OCGT_emission_el = OCGT_emission_th / OCGT_efficiency
+
 # Add carriers
-network.add("Carrier", "gas", co2_emissions=0.19, overwrite=True)  # in t_CO2/MWh_th
+network.add("Carrier", "gas", co2_emissions=OCGT_emission_el, overwrite=True)  # in t_CO2/MWh_th
 network.add("Carrier", "nuclear", overwrite=True)
 network.add("Carrier", "onshorewind", overwrite=True)
 network.add("Carrier", "solar", overwrite=True)
@@ -80,7 +93,7 @@ network.add("Generator", "solar", bus="FR", p_nom_extendable=True,
 
 # Add OCGT generator
 capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033) # in €/MW
-fuel_cost = 21.6  # in €/MWh_th # set multiplier for storage case?
+fuel_cost = 21.6  # in €/MWh_th #
 efficiency = 0.39
 marginal_cost_OCGT = fuel_cost / efficiency  # in €/MWh_el
 network.add("Generator", "OCGT", bus="FR", p_nom_extendable=True,
@@ -104,6 +117,13 @@ print(f"Levelized cost: {network.objective / (network.loads_t.p.values.sum()):.2
 print("Optimal capacities (MW):")
 for gen in network.generators.index:
     print(f"{gen}: {float(network.generators.p_nom_opt[gen]):.2f}")
+
+#%%
+print("\n=== Installed Capacities (GW) ===")
+print(round(network.generators.p_nom_opt*10**(-3),2))
+
+print("\n=== Total Dispatch (GWh over the year) ===")
+print(round(network.generators_t.p.sum()*10**(-3),0))
 
 # ----------------------------------------------------------------------------------------------
 #                                 STEP 1: Visualisation of Results
@@ -158,7 +178,7 @@ for year in years:
     CF_solar = CF_solar[~((CF_solar.index.month == 2) & (CF_solar.index.day == 29))]
 
     # Convert to values
-    CF_wind = CF_wind.values
+    CF_wind = CF_wind.values    
     CF_solar = CF_solar.values
 
     # Create network (Same as earlier, therefore less comments)
@@ -324,41 +344,6 @@ pf.plot_dispatch_timeseries(network, network_storage, gens, labels, colors, hour
 
 # ── 6. Storage state of charge (full year) ───────────────────────────────────
 pf.plot_storage(network_storage)
-
-
-
-#%% 
-# ----------------------- Test: Imposing CO2 Limit 
-
-network.model.solver_model = None
-
-network_co2 = network.copy()
-
-# Add CO2 limit
-co2_limit = 1000000  # tonCO2
-network_co2.add("GlobalConstraint", "co2_limit", type="primary_energy",
-            carrier_attribute="co2_emissions", sense="<=", constant=co2_limit)
-
-# Optimize with CO2 limit
-network_co2.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
-
-print("\nOptimization Results (With CO2 Limit):")
-print(f"Total cost: {network_co2.objective / 1000000:.2f} million €")
-print(f"Levelized cost: {network_co2.objective / float(network_co2.loads_t.p.sum().sum()):.2f} €/MWh")
-print("Optimal capacities (MW):")
-for gen in network_co2.generators.index:
-    print(f"{gen}: {float(network_co2.generators.p_nom_opt[gen]):.2f}")
-
-
-# ── 5. Dispatch time series comparison (first week) ──────────────────────────
-pf.weekly_dispatch_plot(network_co2, tech_colors, 0, storage = False, figsize = (15,5), dpi = 300)
-
-# Pie chart for energy mix with CO2 limit
-pf.energy_mix_piechart(network_co2, colors, labels, full_year = True, dpi = 300)
-
-
-
-
 
 
 #%% ----------------------------------------------------------------------------------------------
@@ -636,3 +621,200 @@ pf.plot_first_hour_trade_and_flow(network_nodes, t0=t0, show_demand_generation=T
 
 
 
+#%% f: impose co2 limit
+
+
+gen = network.generators_t.p
+emissions_factor = network.generators.carrier.map(
+    network.carriers.co2_emissions
+).fillna(0)
+
+# total emissions per generator (ton CO2)
+gen_emissions = gen.multiply(emissions_factor, axis=1)
+
+total_co2 = gen_emissions.sum().sum()
+
+print(f"\n=== BASELINE CO2 EMISSIONS ===")
+print(f"Total system emissions: {total_co2/1e6:.2f} Mton CO2")
+
+
+
+co2_limits = [1e10, 3e7, 2.5e7, 2e7, 1.5e7, 1e7, 5e6, 1e6]
+
+energy_mix = []
+capacity_mix = []  # NEW: store capacities
+
+for limit in co2_limits:
+    network.model.solver_model = None
+
+    n = network.copy()
+    
+    n.add("GlobalConstraint", "co2_limit",
+          type="primary_energy",
+          carrier_attribute="co2_emissions",
+          sense="<=",
+          constant=limit)
+
+    n.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
+
+    # -------------------
+    # ENERGY (unchanged)
+    # -------------------
+    gen_energy = n.generators_t.p.sum()
+    gen_by_carrier = gen_energy.groupby(n.generators.carrier).sum()
+    energy_mix.append(gen_by_carrier)
+
+    # -------------------
+    # CAPACITY (NEW)
+    # -------------------
+    gen_capacity = n.generators.p_nom_opt
+    cap_by_carrier = gen_capacity.groupby(n.generators.carrier).sum()
+    capacity_mix.append(cap_by_carrier)
+
+# =========================
+# ENERGY MIX (PERCENTAGE)
+# =========================
+df_energy = pd.DataFrame(energy_mix, index=co2_limits)
+df_energy = df_energy.fillna(0)
+df_energy = df_energy / df_energy.sum(axis=1).values[:, None]
+df_energy_percent = df_energy * 100
+df_energy_percent.index = df_energy_percent.index / 1e6 # convert to Mton
+df_energy_percent.index = df_energy_percent.index.astype(object)
+df_energy_percent.index.values[0] = r"$\infty$"
+carrier_color_map = {
+    "onshorewind": tech_colors["onshorewind"],
+    "solar": tech_colors["solar"],
+    "gas": tech_colors["OCGT"],
+    "nuclear": tech_colors["nuclear"]
+}
+
+df_energy_percent = df_energy_percent[carrier_color_map.keys()]
+
+df_energy_percent.rename(columns={
+    "onshorewind": "Onshore Wind",
+    "solar": "Solar",
+    "gas": "Gas (OCGT)",
+    "nuclear": "Nuclear"
+}, inplace=True)
+
+df_energy_percent.plot(kind="bar", stacked=True, figsize=(10,6),
+                       color=[carrier_color_map[k] for k in carrier_color_map.keys()])
+
+plt.xlabel("CO2 limit (Mton)")
+plt.ylabel("Energy share (%)")
+plt.title("Energy mix vs CO2 constraint")
+plt.legend(title="Technology", bbox_to_anchor=(1.05,1))
+plt.tight_layout()
+plt.show()
+
+
+# =========================
+# CAPACITY MIX (ABSOLUTE)
+# =========================
+df_capacity = pd.DataFrame(capacity_mix, index=co2_limits)
+df_capacity = df_capacity.fillna(0)
+
+df_capacity = df_capacity[carrier_color_map.keys()]
+df_capacity.index = df_capacity.index / 1e6 # convert to Mton
+df_capacity = df_capacity / 1000 # convert to GW
+df_capacity.index = df_capacity.index.astype(object)
+df_capacity.index.values[0] = r"$\infty$"
+df_capacity.rename(columns={
+    "onshorewind": "Onshore Wind",
+    "solar": "Solar",
+    "gas": "Gas (OCGT)",
+    "nuclear": "Nuclear"
+}, inplace=True)
+
+df_capacity.plot(kind="bar", stacked=True, figsize=(10,6),
+                 color=[carrier_color_map[k] for k in carrier_color_map.keys()])
+
+plt.xlabel("CO2 limit (Mton)")
+plt.ylabel("Installed capacity (GW)")
+plt.title("Installed capacity vs CO2 constraint")
+plt.legend(title="Technology", bbox_to_anchor=(1.05,1))
+plt.tight_layout()
+plt.show()
+
+#%% =========================
+# STYLE SETTINGS (ADJUST HERE)
+# ===========================
+TITLE_SIZE = 20
+LABEL_SIZE = 18
+TICK_SIZE = 14
+X_TICK_SIZE = 16
+LEGEND_SIZE = 16
+
+# =========================
+# PLOTTING
+# =========================
+fig, axes = plt.subplots(2, 1, figsize=(12,8), sharex=True)
+
+# -------------------------
+# ENERGY MIX (TOP)
+# -------------------------
+df_energy_percent.plot(
+    kind="bar",
+    stacked=True,
+    ax=axes[0],
+    color=[carrier_color_map[k] for k in carrier_color_map.keys()],
+    legend=False
+)
+
+axes[0].set_ylabel("Energy Share (%)", fontsize=LABEL_SIZE)
+axes[0].set_title("Energy Mix vs CO2 Constraint", fontsize=TITLE_SIZE)
+axes[0].tick_params(axis='both', labelsize=TICK_SIZE)
+axes[0].grid(axis='y', alpha=0.3)
+
+
+# -------------------------
+# CAPACITY MIX (BOTTOM)
+# -------------------------
+df_capacity.plot(
+    kind="bar",
+    stacked=True,
+    ax=axes[1],
+    color=[carrier_color_map[k] for k in carrier_color_map.keys()]
+)
+
+axes[1].set_xlabel("CO2 Limit (Mton)", fontsize=LABEL_SIZE)
+axes[1].set_ylabel("Installed Capacity (GW)", fontsize=LABEL_SIZE)
+axes[1].set_title("Installed Capacity vs CO2 Constraint", fontsize=TITLE_SIZE)
+axes[1].tick_params(axis='y',labelsize=TICK_SIZE)
+axes[1].tick_params(axis='x', rotation=0,labelsize=X_TICK_SIZE)
+axes[1].grid(axis='y', alpha=0.3)
+
+
+# -------------------------
+# SHARED LEGEND BELOW
+# -------------------------
+handles, labels = axes[1].get_legend_handles_labels()
+
+fig.legend(
+    handles,
+    labels,
+    title="Technology",
+    loc="lower center",
+    bbox_to_anchor=(0.5, -0.02),
+    ncol=4,
+    fontsize=LEGEND_SIZE,
+    title_fontsize=LEGEND_SIZE
+)
+
+axes[1].legend().remove()  # remove duplicate legend
+ax = axes[1]
+
+labels = ax.get_xticklabels()
+
+for lab in labels:
+    if lab.get_text() == r"$\infty$":
+        lab.set_fontsize(28)
+        lab.set_fontweight("bold")
+
+# -------------------------
+# FINAL LAYOUT
+# -------------------------
+plt.tight_layout(rect=[0, 0.06, 1, 1])  # leave space for legend
+plt.show()
+
+# %%
