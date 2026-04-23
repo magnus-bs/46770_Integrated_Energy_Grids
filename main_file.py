@@ -447,7 +447,7 @@ print(network_nodes.lines_t.p0)  # power flow from bus0 to bus1
 # Generator dispatch
 print(network_nodes.generators_t.p)
 
-# Prices (dual of nodal balance)
+# Prices (dual of nodal balance)    x
 print(network_nodes.buses_t.marginal_price)
 
 
@@ -816,5 +816,279 @@ for lab in labels:
 # -------------------------
 plt.tight_layout(rect=[0, 0.06, 1, 1])  # leave space for legend
 plt.show()
+
+
+#%% f: model gas pipelines
+
+network_nodes.model.solver_model = None
+
+n_gas_nodes = network_nodes.copy()
+
+# Remove all old OCGT generators
+ocgt_gens = n_gas_nodes.generators.index[
+    n_gas_nodes.generators.carrier == "gas"
+]
+
+n_gas_nodes.remove("Generator", ocgt_gens)
+
+for country in ["FR", "DE", "CH", "IT", "BE"]:
+    n_gas_nodes.add("Bus", f"{country}_gas", carrier="gas")
+
+# Add gas supply from Germany only
+n_gas_nodes.add("Generator", "DE_gas_supply",
+    bus="DE_gas",
+    carrier="gas",
+    p_nom_extendable=True,
+    marginal_cost=fuel_cost  # €/MWh_th
+)
+
+# Add OCGT as links between gas buses and electricity buses
+n_gas_nodes.add("Link", "CH_OCGT", bus0="CH_gas", bus1="CH", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
+n_gas_nodes.add("Link", "BE_OCGT", bus0="BE_gas", bus1="BE", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
+n_gas_nodes.add("Link", "IT_OCGT", bus0="IT_gas", bus1="IT", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
+n_gas_nodes.add("Link", "CH_OCGT", bus0="CH_gas", bus1="CH", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
+n_gas_nodes.add("Link", "DE_OCGT",bus0="DE_gas", bus1="DE", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
+
+pipelines = [
+    ("DE_gas", "FR_gas"),
+    ("FR_gas", "CH_gas"),
+    ("FR_gas", "BE_gas"),
+    ("FR_gas", "IT_gas"),
+    ("CH_gas", "IT_gas")]
+
+for i, (b0, b1) in enumerate(pipelines):
+    n_gas_nodes.add("Link", f"pipe_{i}",
+        bus0=b0,
+        bus1=b1,
+        p_nom=500000,        # capacity (MW_th)
+        efficiency=1.0,
+        marginal_cost=0
+    )   
+
+
+
+n_gas_nodes.carriers.at["gas", "co2_emissions"] = OCGT_emission_th
+
+n_gas_nodes.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
+
+
+electricity_flow = n_gas_nodes.lines_t.p0.abs().sum().sum()
+gas_flow = n_gas_nodes.links_t.p0.filter(like="pipe").abs().sum().sum()
+
+print("Electricity flow (GW):", round(electricity_flow*1e-3,0))
+print("Gas flow (GW):", round(gas_flow*1e-3,0))
+
+# Gas flow on each pipeline
+print("\nGas flow on pipelines (MWh_th):")
+for i in range(len(pipelines)):
+    flow = n_gas_nodes.links_t.p0[f"pipe_{i}"].sum()
+    print(f"Pipeline {pipelines[i][0]} <-> {pipelines[i][1]}: {flow*1e-6:.2f} TWh_th")
+
+
+#%% VISUALIZATIONS W. GAS
+
+# Stacked bar: total annual generation per technology per country
+
+gen_by_bus = {}
+gen_by_bus = {}
+
+# -------------------------
+# 1. Normal generators
+# -------------------------
+for gen in n_gas_nodes.generators.index:
+    bus = n_gas_nodes.generators.loc[gen, 'bus']
+    carrier = n_gas_nodes.generators.loc[gen, 'carrier']
+    
+    # Skip gas supply
+    if carrier == "gas":
+        continue
+    
+    total = float(n_gas_nodes.generators_t.p[gen].sum())
+    
+    gen_by_bus.setdefault(bus, {})
+    gen_by_bus[bus][carrier] = gen_by_bus[bus].get(carrier, 0) + total
+
+# -------------------------
+# 2. OCGT (from links)
+# -------------------------
+for link in n_gas_nodes.links.index:
+    if "OCGT" in link:
+        bus = n_gas_nodes.links.loc[link, 'bus1']  # electricity side
+        
+        # p1 = electricity output
+        total = -float(n_gas_nodes.links_t.p1[link].sum())
+        
+        gen_by_bus.setdefault(bus, {})
+        gen_by_bus[bus]["gas"] = gen_by_bus[bus].get("gas", 0) + total
+
+df_gen_bus = pd.DataFrame(gen_by_bus).T.fillna(0) / 1e6  # TWh
+
+# Installed capacity per country and technology
+cap_by_bus = {}
+for gen in n_gas_nodes.generators.index:
+    bus = n_gas_nodes.generators.loc[gen, 'bus']
+    carrier = n_gas_nodes.generators.loc[gen, 'carrier']
+
+    if carrier == "gas":
+        continue
+
+    cap = float(n_gas_nodes.generators.p_nom_opt[gen])
+    cap_by_bus.setdefault(bus, {})
+    cap_by_bus[bus][carrier] = cap_by_bus[bus].get(carrier, 0) + cap
+
+# Add OCGT capacities from links
+for link in n_gas_nodes.links.index:
+    if "OCGT" in link:
+        bus = n_gas_nodes.links.loc[link, 'bus1']
+        cap = float(n_gas_nodes.links.p_nom_opt[link])
+        
+        cap_by_bus.setdefault(bus, {})
+        cap_by_bus[bus]["gas"] = cap_by_bus[bus].get("gas", 0) + cap
+
+df_cap_bus = pd.DataFrame(cap_by_bus).T.fillna(0) / 1000  # GW
+
+df_demand = pd.Series({
+    "FR": df_elec["FRA"].sum()/10**6,
+    "DE": df_elec["DEU"].sum()/10**6,
+    "CH": df_elec["CHE"].sum()/10**6,
+    "IT": df_elec["ITA"].sum()/10**6,
+    "BE": df_elec["BEL"].sum()/10**6,
+})
+
+carrier_colors = {
+    "onshorewind": "#4C78A8",  # muted blue
+    "solar": "#F2A541",        # soft orange
+    "gas": "#E45756",          # soft red
+    "nuclear": "#9D755D",      # brown
+    "hydro": "#72B7B2"         # teal
+}
+
+importlib.reload(pf)
+pf.gen_cap_mix_stacked(df_gen_bus, df_cap_bus, df_demand, carrier_colors)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#%% h: impose co2 limit for nodal system
+
+
+gen = network_nodes.generators_t.p
+emissions_factor = network_nodes.generators.carrier.map(
+    network_nodes.carriers.co2_emissions
+).fillna(0)
+
+# total emissions per generator (ton CO2)
+gen_emissions = gen.multiply(emissions_factor, axis=1)
+
+total_co2 = gen_emissions.sum().sum()
+
+print(f"\n=== BASELINE CO2 EMISSIONS ===")
+print(f"Total system emissions: {total_co2/1e6:.2f} Mton CO2")
+
+#%%
+
+co2_limit = 2.3e8
+energy_mix = []
+capacity_mix = []  # NEW: store capacities
+
+network_nodes.model.solver_model = None
+
+n_nodes_co2 = network_nodes.copy()
+
+n_nodes_co2.add("GlobalConstraint", "co2_limit",
+        type="primary_energy",
+        carrier_attribute="co2_emissions",
+        sense="<=",
+        constant=co2_limit)
+
+n_nodes_co2.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
+
+# -------------------
+# ENERGY (unchanged)
+# -------------------
+gen_energy = n_nodes_co2.generators_t.p.sum()
+gen_by_carrier = gen_energy.groupby(n_nodes_co2.generators.carrier).sum()
+energy_mix.append(gen_by_carrier)
+
+# -------------------
+# CAPACITY (NEW)
+# -------------------
+gen_capacity = n_nodes_co2.generators.p_nom_opt
+cap_by_carrier = gen_capacity.groupby(n_nodes_co2.generators.carrier).sum()
+capacity_mix.append(cap_by_carrier)
+
+
+# Power flows
+print(n_nodes_co2.lines_t.p0)  # power flow from bus0 to bus1
+
+# Generator dispatch
+print(n_nodes_co2.generators_t.p)
+
+# Prices (dual of nodal balance)
+print(n_nodes_co2.buses_t.marginal_price)
+
+
+# Stacked bar: total annual generation per technology per country
+
+gen_by_bus = {}
+for gen in n_nodes_co2.generators.index:
+    bus = n_nodes_co2.generators.loc[gen, 'bus']
+    carrier = n_nodes_co2.generators.loc[gen, 'carrier']
+    total = float(n_nodes_co2.generators_t.p[gen].sum())
+    gen_by_bus.setdefault(bus, {})
+    gen_by_bus[bus][carrier] = gen_by_bus[bus].get(carrier, 0) + total
+
+df_gen_bus = pd.DataFrame(gen_by_bus).T.fillna(0) / 1e6  # TWh
+
+# Installed capacity per country and technology
+cap_by_bus = {}
+for gen in n_nodes_co2.generators.index:
+    bus = n_nodes_co2.generators.loc[gen, 'bus']
+    carrier = n_nodes_co2.generators.loc[gen, 'carrier']
+    cap = float(n_nodes_co2.generators.p_nom_opt[gen])
+    cap_by_bus.setdefault(bus, {})
+    cap_by_bus[bus][carrier] = cap_by_bus[bus].get(carrier, 0) + cap
+
+df_cap_bus = pd.DataFrame(cap_by_bus).T.fillna(0) / 1000  # GW
+
+df_demand = pd.Series({
+    "FR": df_elec["FRA"].sum()/10**6,
+    "DE": df_elec["DEU"].sum()/10**6,
+    "CH": df_elec["CHE"].sum()/10**6,
+    "IT": df_elec["ITA"].sum()/10**6,
+    "BE": df_elec["BEL"].sum()/10**6,
+})
+
+carrier_colors = {
+    "onshorewind": "#4C78A8",  # muted blue
+    "solar": "#F2A541",        # soft orange
+    "gas": "#E45756",          # soft red
+    "nuclear": "#9D755D",      # brown
+    "hydro": "#72B7B2"         # teal
+}
+
+importlib.reload(pf)
+pf.gen_cap_mix_stacked(df_gen_bus, df_cap_bus, df_demand, carrier_colors)
+
+co2_shadow_price = n_nodes_co2.global_constraints.mu["co2_limit"]
+
+print(f"CO2 shadow price: {co2_shadow_price:.2f} €/ton CO2")
+
 
 # %%
