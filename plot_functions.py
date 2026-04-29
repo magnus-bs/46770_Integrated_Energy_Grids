@@ -239,17 +239,21 @@ def weekly_dispatch_plot(network, tech_colors, start_day, storage = False, figsi
                         color='teal', label='Storage Dispatch', alpha=0.5)
 
         plt.legend(loc='upper right')
-        plt.title('System Dispatch with Pumped Hydro Storage (One Week)')
-        plt.ylabel('Power (MW)')
-        plt.grid(True, alpha=0.3)
-        plt.show()
+        print('System Dispatch with Pumped Hydro Storage (One Week)')
     else:
-        plt.legend(fancybox=True, ncol=3,shadow=True, loc='best')
-        plt.title('Electricity Dispatch (In summer)')
-        plt.xlabel('Hour')
-        plt.ylabel('Power (MW)')
-        plt.grid(alpha=0.3)
-        plt.show()
+        print('Electricity Dispatch without Storage')
+    
+    plt.legend(
+        loc="upper center",
+        bbox_to_anchor = (0.5, 1.15),
+        ncol=5,
+        frameon=False,
+        fontsize=12
+    )
+    plt.xlabel('Hour')
+    plt.ylabel('Power (MW)')
+    plt.grid(alpha=0.3)
+    plt.show()
 
 
 def energy_mix_piechart(network, colors, labels, full_year = True, dpi = 300):
@@ -298,10 +302,9 @@ def energy_mix_piechart(network, colors, labels, full_year = True, dpi = 300):
         plt.figure(dpi = dpi)
         plt.pie(winter_sizes, colors=colors, labels=labels, wedgeprops={'linewidth': 0})
         plt.axis('equal')
-        plt.title('Electricity Mix (Winter)', y=1.07)
         plt.show()
 
-        # --- Summer electricity mix ---
+        # --- Electricity mix ---
         plt.figure(dpi = dpi)
         plt.pie(summer_sizes, colors=colors, labels=labels, wedgeprops={'linewidth': 0})
         plt.axis('equal')
@@ -309,18 +312,39 @@ def energy_mix_piechart(network, colors, labels, full_year = True, dpi = 300):
         plt.show()
 
 
-def duration_curves(network, tech_colors, figsize = (12,8), dpi = 400):
+def duration_curves(network, tech_colors, figsize = (10,8), dpi = 400):
     plt.figure(figsize=figsize, dpi = dpi)
+
+    labels = {
+            "onshorewind": "Onshore Wind",
+            "solar": "Solar",
+            "OCGT": "Gas (OCGT)",
+            "nuclear": "Nuclear",
+            "hydro": "Hydro"
+        }
 
     for gen in network.generators_t.p.columns:
         sorted_values = np.sort(network.generators_t.p[gen].values)[::-1]  # sort descending
         hours = np.arange(1, len(sorted_values)+1)
-        plt.plot(hours, sorted_values, label=gen, color=tech_colors.get(gen, 'gray'))
+        plt.plot(hours, sorted_values, color=tech_colors.get(gen, gen), label = labels.get(gen))
 
     plt.xlabel("Hours per year (sorted)", fontsize = 14)
     plt.ylabel("Power (MW)", fontsize = 14)
     #plt.title("Annual Generation Duration Curve")
-    plt.legend(fancybox=True, shadow=True, ncol = 4, loc='best')
+    plt.legend(
+        loc="upper center",
+        bbox_to_anchor = (0.5, 1.10),
+        ncol=5,
+        frameon=False,
+        fontsize=12
+    )
+    labels = {
+            "onshorewind": "Onshore Wind",
+            "solar": "Solar",
+            "gas": "Gas (OCGT)",
+            "nuclear": "Nuclear",
+            "hydro": "Hydro"
+        }
     plt.grid(True, alpha=0.3)
     plt.show()
 
@@ -560,3 +584,111 @@ def plot_storage(network_storage):
 
     plt.tight_layout()
     plt.show()
+
+
+def capacity_dispatch_bars(network, tech_colors):
+    # --- Data ---
+    capacity = network.generators.p_nom_opt * 1e-3  # GW
+    dispatch = network.generators_t.p.sum() * 1e-3  # GWh
+
+    cap_by_tech = capacity.groupby(network.generators.carrier).sum()
+    disp_by_tech = dispatch.groupby(network.generators.carrier).sum()
+
+    # Align
+    techs = cap_by_tech.index.union(disp_by_tech.index)
+    cap_by_tech = cap_by_tech.reindex(techs).fillna(0)
+    disp_by_tech = disp_by_tech.reindex(techs).fillna(0)
+
+    # Percentages
+    cap_pct = cap_by_tech / cap_by_tech.sum() * 100
+    disp_pct = disp_by_tech / disp_by_tech.sum() * 100
+
+    # Colors (same for both)
+    colors = [tech_colors.get(t, tech_colors['OCGT']) for t in techs]
+    labels = {
+        "onshorewind": "Onshore Wind",
+        "solar": "Solar",
+        "gas": "Gas (OCGT)",
+        "nuclear": "Nuclear",
+        "hydro": "Hydro"
+    }
+
+    # --- Positions ---
+    y = np.arange(len(techs))
+    bar_height = 0.35
+
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=(8, 6), dpi = 400)
+
+    # Capacity (hatched)
+    ax.barh(
+        y + bar_height/2,
+        cap_pct,
+        height=bar_height,
+        color=colors,
+        hatch='///',                 # <-- pattern
+        edgecolor='black',           # makes hatch visible
+        linewidth=0.5,
+        label="Capacity (%)",
+        alpha = 0.7
+    )
+
+    # Dispatch (solid)
+    ax.barh(
+        y - bar_height/2,
+        disp_pct,
+        height=bar_height,
+        color=colors,
+        label="Dispatch (%)",
+        alpha = 0.7
+    )
+
+    # --- Add percentage labels inside bars ---
+    for i, (cap, disp) in enumerate(zip(cap_pct, disp_pct)):
+
+        # Capacity (upper bar)
+        ax.text(
+            cap / 2,
+            i + bar_height/2,
+            f"{cap:.1f}%",
+            va='center',
+            ha='center',
+            fontsize=10,
+            color='white',
+            fontweight='bold'
+        )
+
+        # Dispatch (lower bar)
+        ax.text(
+            disp / 2,
+            i - bar_height/2,
+            f"{disp:.1f}%",
+            va='center',
+            ha='center',
+            fontsize=10,
+            color='white',
+            fontweight='bold'
+        )
+
+    # Grid (helps read capacity especially)
+    ax.xaxis.grid(True, linestyle='--', alpha=0.5)
+    ax.set_axisbelow(True)
+
+    # Y labels
+    y_labels = [labels.get(t, t) for t in techs]
+    ax.set_yticks(y)
+    ax.set_yticklabels(y_labels)
+
+    # Labels
+    ax.set_xlabel("Share (%)")
+    print("Capacity vs Dispatch Share by Technology")
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='white', edgecolor='black', hatch='///', label='Capacity'),
+        Patch(facecolor='white', edgecolor='black', label='Dispatch')
+    ]
+
+    ax.legend(handles=legend_elements)
+    plt.tight_layout()
+    plt.show()
+
