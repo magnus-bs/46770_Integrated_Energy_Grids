@@ -110,7 +110,6 @@ for gen in network.generators.index:
 ### ----------------------------------------------------------------------------------------------
 import importlib
 import plot_functions as pf
-importlib.reload(pf)
 
 # Weekly Disptach (summer/winter)
 pf.weekly_dispatch_plot(network, tech_colors, start_day = 0)
@@ -308,6 +307,7 @@ df_cap = pd.DataFrame({
 print("\n=== Optimal Capacities ===")
 print(df_cap)
 
+importlib.reload(pf)
 
 # ── 3. Electricity mix comparison (pie charts side by side) ───────────────────
 gens = ["onshorewind", "solar", "OCGT", "nuclear"]

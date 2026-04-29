@@ -171,9 +171,9 @@ def interannual_var_boxplots(df_results, figsize = (8,7), dpi = 300):
 
     # Define professional color palettes
     tech_colors = {
-        'OCGT': '#4c72b0',      # muted blue
-        'onshorewind': '#55a868', # muted green
-        'solar': '#c44e52',        # muted red
+        'OCGT': '#c44e52',      # muted red # '#55a868'
+        'onshorewind':'#4c72b0', # muted green
+        'solar': "#e9972a",        # muted red
         'nuclear': '#8172b3'    # muted purple
     }
 
