@@ -14,6 +14,32 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import plot_functions as pf
 
+import seaborn as sns
+sns.set_theme(style="whitegrid", font="serif",
+              rc={
+                  "figure.figsize": (12, 5),
+                  "font.size": 16,           # base font size
+                  "axes.titlesize": 16,       # plot title
+                  "axes.labelsize": 16,       # x and y axis labels
+                  "xtick.labelsize": 14,      # x tick labels
+                  "ytick.labelsize": 14,      # y tick labels
+                  "legend.fontsize": 12,      # legend text
+                  'axes.edgecolor': 'black',
+                  'axes.spines.left': True,
+                  'axes.spines.bottom': True,
+                  'axes.spines.right': False,
+                  'axes.spines.top': False,
+                  'axes.grid': True,
+                  'grid.color': "black",
+                  'grid.linestyle': ':',
+                  'grid.alpha': 0.3
+              })
+
+
+
+
+
+
 
 
 #%% ----------------------------------------------------------------------------------------------
@@ -132,8 +158,10 @@ import importlib
 import plot_functions as pf
 
 # Weekly Disptach (summer/winter)
-pf.weekly_dispatch_plot(network, tech_colors, start_day = 0)
-pf.weekly_dispatch_plot(network, tech_colors, start_day = 24*30*6)
+print("Winter:")
+pf.weekly_dispatch_plot(network, tech_colors, start_day = 0, figsize = (13,3))
+print("Summer:")
+pf.weekly_dispatch_plot(network, tech_colors, start_day = 24*30*6, figsize=(13,3))
 
 colors = [tech_colors['onshorewind'], tech_colors['solar'], tech_colors['OCGT'], tech_colors['nuclear']]
 labels = ['Onshore Wind', 'Solar', 'Gas (OCGT)', 'Nuclear']
@@ -142,13 +170,10 @@ labels = ['Onshore Wind', 'Solar', 'Gas (OCGT)', 'Nuclear']
 pf.energy_mix_piechart(network, colors, labels, full_year = True, dpi = 300)
     
 # Load Duration Curves
-pf.duration_curves(network, tech_colors, figsize = (10,4), dpi = 400)
+pf.duration_curves(network, tech_colors, figsize = (7,5.5), dpi = 400)
 
-
-
-
-
-
+# Capacity and dispatch
+pf.capacity_dispatch_bars(network, tech_colors)
 
 
 #%% ----------------------------------------------------------------------------------------------
