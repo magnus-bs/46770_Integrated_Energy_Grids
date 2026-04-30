@@ -818,6 +818,18 @@ plt.tight_layout(rect=[0, 0.06, 1, 1])  # leave space for legend
 plt.show()
 
 
+#%%
+cap_15 = df_capacity.loc[15].sum()
+cap_infty = df_capacity.loc["$\infty$"].sum()
+pct_increase = (cap_15 / cap_infty - 1) * 100 
+print("Increase in installed capacity with 15Mton CO2 limit: ",round(pct_increase,1),"%")
+
+cap_1 = df_capacity.loc[1].sum()
+pct_increase = (cap_1 / cap_infty - 1) * 100 
+print("Increase in installed capacity with 1Mton CO2 limit: ",round(pct_increase,1),"%")
+
+
+
 #%% f: model gas pipelines
 
 network_nodes.model.solver_model = None
@@ -843,29 +855,44 @@ n_gas_nodes.add("Generator", "DE_gas_supply",
 )
 
 # Add OCGT as links between gas buses and electricity buses
-n_gas_nodes.add("Link", "CH_OCGT", bus0="CH_gas", bus1="CH", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
+n_gas_nodes.add("Link", "FR_OCGT", bus0="FR_gas", bus1="FR", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
 n_gas_nodes.add("Link", "BE_OCGT", bus0="BE_gas", bus1="BE", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
 n_gas_nodes.add("Link", "IT_OCGT", bus0="IT_gas", bus1="IT", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
 n_gas_nodes.add("Link", "CH_OCGT", bus0="CH_gas", bus1="CH", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
 n_gas_nodes.add("Link", "DE_OCGT",bus0="DE_gas", bus1="DE", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
 
-pipelines = [
-    ("DE_gas", "FR_gas"),
-    ("FR_gas", "CH_gas"),
-    ("FR_gas", "BE_gas"),
-    ("FR_gas", "IT_gas"),
-    ("CH_gas", "IT_gas")]
+# capacities in GWh/day → convert to MW_th
+gas_multiplier = 1.3
 
-for i, (b0, b1) in enumerate(pipelines):
-    n_gas_nodes.add("Link", f"pipe_{i}",
+gas_links = {
+    ("DE_gas", "FR_gas"): 455*gas_multiplier,
+    ("FR_gas", "DE_gas"): 180*gas_multiplier,
+    ("CH_gas", "FR_gas"): 100*gas_multiplier,
+    ("FR_gas", "CH_gas"): 260*gas_multiplier,
+    ("FR_gas", "BE_gas"): 271*gas_multiplier,
+    ("BE_gas", "FR_gas"): 462*gas_multiplier,
+    ("IT_gas", "CH_gas"): 440*gas_multiplier,
+    ("CH_gas", "IT_gas"): 640*gas_multiplier,
+    ("CH_gas", "DE_gas"): 327*gas_multiplier,
+    ("DE_gas", "CH_gas"): 411*gas_multiplier,
+    ("DE_gas", "BE_gas"): 441*gas_multiplier,
+    ("BE_gas", "DE_gas"): 435*gas_multiplier,
+    ("DE_gas", "IT_gas"): 1192*gas_multiplier,
+    ("IT_gas", "DE_gas"): 264* gas_multiplier
+}
+
+for i, ((b0, b1), cap_gwh_day) in enumerate(gas_links.items()):
+    cap_mw = cap_gwh_day * 1e3 / 24  # convert to MW_th
+
+    n_gas_nodes.add(
+        "Link",
+        f"{b0}_{b1}_gas",
         bus0=b0,
         bus1=b1,
-        p_nom=500000,        # capacity (MW_th)
+        p_nom=cap_mw,
         efficiency=1.0,
-        marginal_cost=0
-    )   
-
-
+        marginal_cost=0.0001
+    )
 
 n_gas_nodes.carriers.at["gas", "co2_emissions"] = OCGT_emission_th
 
@@ -873,16 +900,27 @@ n_gas_nodes.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
 
 
 electricity_flow = n_gas_nodes.lines_t.p0.abs().sum().sum()
-gas_flow = n_gas_nodes.links_t.p0.filter(like="pipe").abs().sum().sum()
 
-print("Electricity flow (GW):", round(electricity_flow*1e-3,0))
-print("Gas flow (GW):", round(gas_flow*1e-3,0))
+gas_links_names = [f"{b0}_{b1}_gas" for (b0, b1) in gas_links.keys()]
+gas_flow = n_gas_nodes.links_t.p0[gas_links_names].abs().sum().sum()
+
+
+print("Electricity flow (TWh):", round(electricity_flow*1e-6,0))
+print("Gas flow (TWh):", round(gas_flow*1e-6,0))
 
 # Gas flow on each pipeline
 print("\nGas flow on pipelines (MWh_th):")
-for i in range(len(pipelines)):
-    flow = n_gas_nodes.links_t.p0[f"pipe_{i}"].sum()
-    print(f"Pipeline {pipelines[i][0]} <-> {pipelines[i][1]}: {flow*1e-6:.2f} TWh_th")
+for i in range(len(gas_links)):
+    flow = n_gas_nodes.links_t.p0[f"{list(gas_links.keys())[i][0]}_{list(gas_links.keys())[i][1]}_gas"].sum()
+    print(f"Pipeline {list(gas_links.keys())[i][0]} <-> {list(gas_links.keys())[i][1]}: {flow*1e-6:.2f} TWh_th")
+
+# Electricity flow on each interconnection
+print("\nElectricity flow on interconnections (TWh):")
+for line in n_gas_nodes.lines.index:
+    flow = n_gas_nodes.lines_t.p0[line].sum()
+    print(f"Line {line}: {flow*1e-6:.2f} TWh")
+
+
 
 
 #%% VISUALIZATIONS W. GAS
@@ -980,7 +1018,20 @@ pf.gen_cap_mix_stacked(df_gen_bus, df_cap_bus, df_demand, carrier_colors)
 
 
 
+#%% Emissions France
 
+gen = network.generators_t.p
+emissions_factor = network.generators.carrier.map(
+    network.carriers.co2_emissions
+).fillna(0)
+
+# total emissions per generator (ton CO2)
+gen_emissions = gen.multiply(emissions_factor, axis=1)
+
+total_co2 = gen_emissions.sum().sum()
+
+print(f"\n=== FRANCE CO2 EMISSIONS ===")
+print(f"Total system emissions: {total_co2/1e6:.2f} Mton CO2")
 
 
 
@@ -1000,8 +1051,6 @@ total_co2 = gen_emissions.sum().sum()
 
 print(f"\n=== BASELINE CO2 EMISSIONS ===")
 print(f"Total system emissions: {total_co2/1e6:.2f} Mton CO2")
-
-#%%
 
 co2_limit = 2.3e8
 energy_mix = []
