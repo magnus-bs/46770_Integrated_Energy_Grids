@@ -500,6 +500,9 @@ print(network_nodes.generators_t.p)
 print(network_nodes.buses_t.marginal_price)
 
 
+# Total system cost
+print(f"Total system cost: {network_nodes.objective / 1e6:.2f} million €")
+
 
 #%% ----------------------------------------------------------------------------------------------
 #                                 VISUALISATIONS
@@ -889,6 +892,9 @@ network_nodes.model.solver_model = None
 
 n_gas_nodes = network_nodes.copy()
 
+# Add gas storage in all countries
+STORAGE = False
+
 # Remove all old OCGT generators
 ocgt_gens = n_gas_nodes.generators.index[
     n_gas_nodes.generators.carrier == "gas"
@@ -907,15 +913,17 @@ n_gas_nodes.add("Generator", "DE_gas_supply",
     marginal_cost=fuel_cost  # €/MWh_th
 )
 
+capital_cost_OCGT_link = capital_cost_OCGT * efficiency  # scale to €/MW_th input
+
 # Add OCGT as links between gas buses and electricity buses
-n_gas_nodes.add("Link", "FR_OCGT", bus0="FR_gas", bus1="FR", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
-n_gas_nodes.add("Link", "BE_OCGT", bus0="BE_gas", bus1="BE", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
-n_gas_nodes.add("Link", "IT_OCGT", bus0="IT_gas", bus1="IT", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
-n_gas_nodes.add("Link", "CH_OCGT", bus0="CH_gas", bus1="CH", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
-n_gas_nodes.add("Link", "DE_OCGT",bus0="DE_gas", bus1="DE", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT, marginal_cost=0)
+n_gas_nodes.add("Link", "FR_OCGT", bus0="FR_gas", bus1="FR", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT_link, marginal_cost=0)
+n_gas_nodes.add("Link", "BE_OCGT", bus0="BE_gas", bus1="BE", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT_link, marginal_cost=0)
+n_gas_nodes.add("Link", "IT_OCGT", bus0="IT_gas", bus1="IT", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT_link, marginal_cost=0)
+n_gas_nodes.add("Link", "CH_OCGT", bus0="CH_gas", bus1="CH", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT_link, marginal_cost=0)
+n_gas_nodes.add("Link", "DE_OCGT",bus0="DE_gas", bus1="DE", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT_link, marginal_cost=0)
 
 # capacities in GWh/day → convert to MW_th
-gas_multiplier = 1.3
+gas_multiplier = 10000.3
 
 gas_links = {
     ("DE_gas", "FR_gas"): 455*gas_multiplier,
@@ -944,8 +952,30 @@ for i, ((b0, b1), cap_gwh_day) in enumerate(gas_links.items()):
         bus1=b1,
         p_nom=cap_mw,
         efficiency=1.0,
-        marginal_cost=0.0001
+        marginal_cost=0.000 # Minimal cost to ensure no circular flows (DE->CH->FR->DE for example)
     )
+
+if STORAGE:
+        # Gas storage parameters (example values - adjust!)
+    gas_storage_capacity = {
+        "DE": 0,  # They are modelled to be supplying country
+        "FR": 125 * 10**6,
+        "CH": 0, # Switzerland has very limited gas storage
+        "IT": 200 * 10**6,
+        "BE": 9 * 10**6
+    }
+
+    for country in ["FR", "DE", "CH", "IT", "BE"]:
+        n_gas_nodes.add(
+            "Store",
+            f"{country}_gas_storage",
+            bus=f"{country}_gas",
+            e_nom=gas_storage_capacity[country],
+            e_initial=0.5 * gas_storage_capacity[country], # realistic initial level
+            e_cyclic=True,
+            e_min_pu=0.1, # minimum 10% full to reflect operational constraints
+            marginal_cost=0.0
+        )
 
 n_gas_nodes.carriers.at["gas", "co2_emissions"] = OCGT_emission_th
 
@@ -973,6 +1003,8 @@ for line in n_gas_nodes.lines.index:
     flow = n_gas_nodes.lines_t.p0[line].sum()
     print(f"Line {line}: {flow*1e-6:.2f} TWh")
 
+print("\n=== COSTS WITH GAS PIPELINES ===")
+print(f"Total system cost: {n_gas_nodes.objective / 1e6:.2f} million €")
 
 
 
@@ -1031,8 +1063,7 @@ for gen in n_gas_nodes.generators.index:
 for link in n_gas_nodes.links.index:
     if "OCGT" in link:
         bus = n_gas_nodes.links.loc[link, 'bus1']
-        cap = float(n_gas_nodes.links.p_nom_opt[link])
-        
+        cap = float(n_gas_nodes.links.p_nom_opt[link]) * n_gas_nodes.links.loc[link, 'efficiency']        
         cap_by_bus.setdefault(bus, {})
         cap_by_bus[bus]["gas"] = cap_by_bus[bus].get("gas", 0) + cap
 
