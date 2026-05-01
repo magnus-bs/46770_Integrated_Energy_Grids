@@ -119,6 +119,7 @@ network.add("Generator", "solar", bus="FR", p_nom_extendable=True,
 
 # Add OCGT generator
 capital_cost_OCGT = annuity(25, 0.07) * 560000 * (1 + 0.033) # in €/MW
+#capital_cost_OCGT *= 0.1
 fuel_cost = 21.6  # in €/MWh_th #
 efficiency = 0.39
 marginal_cost_OCGT = fuel_cost / efficiency  # in €/MWh_el
@@ -477,6 +478,7 @@ network_nodes.add("Generator", "BE_nuclear", bus="BE",
             p_min_pu=0.5,
             ramp_limit_up=0.15,
             ramp_limit_down=0.15)
+
 
 # France connections
 network_nodes.add("Line", "FR-CH", bus0="FR", bus1="CH", s_nom=3200, x=0.1, r=0)
@@ -838,20 +840,24 @@ axes[1].grid(axis='y', alpha=0.3)
 # -------------------------
 # SHARED LEGEND BELOW
 # -------------------------
+# -------------------------
+# SHARED LEGEND (RIGHT SIDE)
+# -------------------------
 handles, labels = axes[1].get_legend_handles_labels()
 
 fig.legend(
     handles,
     labels,
     title="Technology",
-    loc="lower center",
-    bbox_to_anchor=(0.5, -0.02),
-    ncol=4,
+    loc="center left",
+    bbox_to_anchor=(1.0, 0.5),  # push outside right
+    ncol=1,
     fontsize=LEGEND_SIZE,
-    title_fontsize=LEGEND_SIZE
+    title_fontsize=LEGEND_SIZE,
+    frameon=False
 )
 
-axes[1].legend().remove()  # remove duplicate legend
+axes[1].legend().remove()
 ax = axes[1]
 
 labels = ax.get_xticklabels()
@@ -864,7 +870,7 @@ for lab in labels:
 # -------------------------
 # FINAL LAYOUT
 # -------------------------
-plt.tight_layout(rect=[0, 0.06, 1, 1])  # leave space for legend
+plt.tight_layout(rect=[0, 0, 1, 1])
 plt.show()
 
 
@@ -892,7 +898,7 @@ network_nodes.model.solver_model = None
 n_gas_nodes = network_nodes.copy()
 
 # Add gas storage in all countries
-STORAGE = False
+STORAGE = True
 
 # Remove all old OCGT generators
 ocgt_gens = n_gas_nodes.generators.index[
@@ -922,7 +928,7 @@ n_gas_nodes.add("Link", "CH_OCGT", bus0="CH_gas", bus1="CH", efficiency=0.39, p_
 n_gas_nodes.add("Link", "DE_OCGT",bus0="DE_gas", bus1="DE", efficiency=0.39, p_nom_extendable=True, capital_cost=capital_cost_OCGT_link, marginal_cost=0)
 
 # capacities in GWh/day → convert to MW_th
-gas_multiplier = 10000.3
+gas_multiplier = 1.3
 
 gas_links = {
     ("DE_gas", "FR_gas"): 455*gas_multiplier,
@@ -951,7 +957,7 @@ for i, ((b0, b1), cap_gwh_day) in enumerate(gas_links.items()):
         bus1=b1,
         p_nom=cap_mw,
         efficiency=1.0,
-        marginal_cost=0.000 # Minimal cost to ensure no circular flows (DE->CH->FR->DE for example)
+        marginal_cost=0.0001 # Minimal cost to ensure no circular flows (DE->CH->FR->DE for example)
     )
 
 if STORAGE:
@@ -1094,6 +1100,36 @@ pf.gen_cap_mix_stacked(df_gen_bus, df_cap_bus, df_demand, carrier_colors)
 
 
 
+if STORAGE:
+    countries = ["FR", "DE", "CH", "IT", "BE"]
+
+    plt.figure()
+
+    for c in countries:
+        store_name = f"{c}_gas_storage"
+        
+        plt.plot(
+            n_gas_nodes.stores_t.e[store_name] / 1e3,  # convert to GWh
+            label=c
+        )
+
+    plt.xlabel("Time step")
+    plt.ylabel("Gas storage level (GWh$_{th}$)")
+    plt.title("Development of gas storage levels")
+    plt.legend()
+    plt.grid(True)
+
+    plt.show()
+
+
+
+
+
+
+
+
+
+
 #%% Emissions France
 
 gen = network.generators_t.p
@@ -1134,11 +1170,13 @@ total_co2 = gen_emissions.sum().sum()
 print(f"\n=== BASELINE CO2 EMISSIONS ===")
 print(f"Total system emissions: {total_co2/1e6:.2f} Mton CO2")
 
-co2_limit = 2.3e8
+co2_limit = 2.37e8
+#co2_limit = 1.8e8
 energy_mix = []
 capacity_mix = []  # NEW: store capacities
 
 network_nodes.model.solver_model = None
+
 
 n_nodes_co2 = network_nodes.copy()
 
@@ -1147,6 +1185,7 @@ n_nodes_co2.add("GlobalConstraint", "co2_limit",
         carrier_attribute="co2_emissions",
         sense="<=",
         constant=co2_limit)
+
 
 n_nodes_co2.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
 
@@ -1223,3 +1262,52 @@ print(f"CO2 shadow price: {co2_shadow_price:.2f} €/ton CO2")
 
 
 # %%
+# -------------------
+# EMISSIONS BY COUNTRY
+# -------------------
+
+# Recompute emissions with optimized dispatch
+gen = n_nodes_co2.generators_t.p
+emissions_factor = n_nodes_co2.generators.carrier.map(
+    n_nodes_co2.carriers.co2_emissions
+).fillna(0)
+
+gen_emissions = gen.multiply(emissions_factor, axis=1)
+
+# Aggregate by bus (country)
+emissions_by_bus = {}
+
+for gen_name in n_nodes_co2.generators.index:
+    bus = n_nodes_co2.generators.loc[gen_name, 'bus']
+    total_emissions = float(gen_emissions[gen_name].sum())
+    
+    emissions_by_bus[bus] = emissions_by_bus.get(bus, 0) + total_emissions
+
+df_emissions_bus = pd.Series(emissions_by_bus) / 1e6  # convert to Mton CO2
+
+print("\n=== EMISSIONS BY COUNTRY ===")
+print(df_emissions_bus)
+
+# Sort (optional, but looks better)
+df_emissions_bus = df_emissions_bus.sort_values(ascending=False)
+
+# Convert to single-row DataFrame
+df_plot = df_emissions_bus.to_frame().T
+
+# Plot
+ax = df_plot.plot(
+    kind='bar',
+    stacked=True,
+    figsize=(4, 6),
+    width=0.5
+)
+
+ax.set_ylabel("Mton CO2")
+ax.set_xticks([])  # remove x-axis label (only one bar)
+ax.set_title("Total CO2 Emissions Split by Country")
+
+ax.grid(axis='y')
+plt.legend(title="Country", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+plt.tight_layout()
+plt.show()
