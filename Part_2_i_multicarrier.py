@@ -136,10 +136,10 @@ network_base.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
 network_multi.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
 
 #%% ----------------------------------------------------------------------------------------------
-#                                 Results analysis
+#                                 Results and analysis
 ### ----------------------------------------------------------------------------------------------
 
-#%% -------------- Compare total system cost------------------------------
+# -------------- Compare total system cost------------------------------
 print("\n=== Total System Cost (M€) ===")
 print(f'Basecase: {round(network_base.objective/1e6,2)}')
 
@@ -148,33 +148,41 @@ print(f'Multi-carrier system: {round(network_multi.objective /1e6,2)}')
 # Print how big objective is compared to base case
 print(f"Multi-carrier system is {round((network_multi.objective - network_base.objective)/network_base.objective*100,2)}% more expensive than the base case")
 
-# %% -------------- Optimal Capacity and generation mix--------------------
+#  -------------- Optimal Capacity and generation mix--------------------
 print("\n=== Optimal Capacity (MW) ===")
-network_multi.generators.p_nom_opt # Check generators
 
-#%%
-network_multi.links.p_nom_opt # Check links
+# Check generator capacities
+print(round(network_multi.generators.p_nom_opt, 2)) # Check generators
 
-#%%
-print("\n=== Optimal Generation (MWh) ===")
-network_multi.generators_t.p # Check generators
+# Check link capacities 
+print(round(network_multi.links.p_nom_opt.groupby(level=0).sum(), 2)) # Check links
 
-#%%
+print("\n=== Optimal Generation (GWh) ===")
+
+# Check generation from generators
+print(round(network_multi.generators_t.p.sum()/1000, 2)) # Check generators
+
+# Check generation from links
 for country in countries:
-    print(f"\n{country} CHP generation (MWh): {-network_multi.links_t.p1[f'{country}_CHP'].sum()}")
-    print(f"{country} boiler generation (MWh): {-network_multi.links_t.p1[f'{country}_boiler'].sum()}")  
+    power = -network_multi.links_t.p1[f"{country}_CHP"].sum() / 1000
+    heat = -network_multi.links_t.p2[f"{country}_CHP"].sum() / 1000
+    gas = network_multi.links_t.p0[f"{country}_CHP"].sum() / 1000
 
-for country in ["FR", "IT"]:
-    print(f"{country} heat pump generation (MWh): {-network_multi.links_t.p1[f'{country}_heat_pump'].sum()}")
+    print(f"\n{country} CHP outputs:")
+    print(f"  Electricity generation: {power:.2f} GWh")
+    print(f"  Heat generation:        {heat:.2f} GWh")
+    print(f"  Gas input:              {gas:.2f} GWh")
 
-#%%
-# Plot dispatch and cpacity for each country in different subplots
-# I want to make a plot where the left plot is for electricity and the right is for heat. Show stacked bar plots (in each subplot two stacked bars for each country, one for installed cpaacities and one for generation) with different colors for the different technologies.
+for country in ["FR", "IT","CH"]:
+    print(f"{country} heat pump generation (GWh): {-network_multi.links_t.p1[f'{country}_heat_pump'].sum()/1000:.2f}")
 
-pd.concat([-network_multi.links_t.p2['FR_CHP'].loc["2015-01"],-network_multi.links_t.p1['FR_heat_pump'].loc["2015-01"],-network_multi.links_t.p1['FR_boiler'].loc["2015-01"]], axis=1).plot.area(figsize=(6, 2), ylabel="dispatch")
-pd.concat([-network_multi.links_t.p2['FR_CHP'].loc["2015-07"],-network_multi.links_t.p1['FR_heat_pump'].loc["2015-07"],-network_multi.links_t.p1['FR_boiler'].loc["2015-07"]], axis=1).plot.area(figsize=(6, 2), ylabel="dispatch")
-
-
+# Plot dispatch  for each country in different subplots
+print("\n=== Plot dispatch ===")
+pf.plot_energy_mix_multi(
+    network=network_multi,
+    countries=countries,
+    country_order=["FR", "DE", "CH", "IT", "BE"]
+)
 
 #%%-------------------- Demand analysis -----------------------------------
 df_elec = pd.read_csv('data/electricity_demand.csv', sep=';', index_col=0)  # in MWh
@@ -187,7 +195,7 @@ for country in countries:
     print(f"{country} heat demand (GWh): {round(heat_demand[countries[country]].sum()/1e3, 2)}")
     print(f"{country} heat to electricity ratio: {round(heat_demand[countries[country]].sum()/df_elec[countries[country]].sum(), 2)}")   
 
-#%% Total electricity demand and heat demand and ratio
+# Total electricity demand and heat demand and ratio
 total_heat_demand = heat_demand[countries.values()].sum().sum() / 1e3  # in GWh
 total_electricity_demand = df_elec[countries.values()].sum().sum() / 1e3  # in GWh
 print(f"\nTotal heat demand (GWh): {round(total_heat_demand, 2)}")
@@ -196,30 +204,10 @@ print(f"Total heat to electricity ratio: {round(total_heat_demand/total_electric
 print(f"The sum of heat and electricity demand is {round(total_heat_demand + total_electricity_demand, 2)} GWh  ")
 
 
-
-# Plot heat and electricity for france diuring the year
-df_plot = pd.concat([heat_demand[countries["FR"]], df_elec[countries["FR"]]], axis=1)
-df_plot.columns = ["Heat demand", "Electricity demand"]
-df_plot.plot(figsize=(10, 4), ylabel="Demand (MWh)", title="France heat and electricity demand")    
-
-
-#%% -------------------------------Exports/Imports --------------------------------------
-# Exports/Imports per country
-
-pf.avg_annual_net_export_bar_plot(network_multi)
-pf.flow_matrix_heatmap(network_multi)
+# Investigation of heat and electricity demand of all countries throughout the year
+for country in countries:
+    df_plot = pd.concat([heat_demand[countries[country]], df_elec[countries[country]]], axis=1)
+    df_plot.columns = ["Heat demand", "Electricity demand"]
+    df_plot.plot(figsize=(10, 4), ylabel="Demand (MWh)", title=f"{country} heat and electricity demand")    
 
 
-
-#%% -----------------------------
-# PLOT DISPATCH FOR ELECTRICITY AND HEAT
-# -------------------------------
-
-pf.plot_energy_mix_multi(
-    network=network_multi,
-    countries=countries,
-    country_order=["FR", "DE", "CH", "IT", "BE"]
-)
-
-
-# %%
