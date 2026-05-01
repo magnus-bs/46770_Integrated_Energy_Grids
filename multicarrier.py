@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import plot_functions as pf
-
+import importlib
+importlib.reload(pf)
 
 #%% ----------------------------------------------------------------------------------------------
 #                                 Load relevant data
@@ -46,7 +47,7 @@ for country in countries:
 # Add heat demand to each heat bus 
     network_multi.add("Load", f"{country}_heat_demand", bus=f"{country}_heat", p_set=heat_demand[countries[country]].values)    
 
-#%% Add unlimited gas storage in each country
+# Add unlimited gas storage in each country
 for country in countries:
     network_multi.add("Bus", f"{country}_gas")
 
@@ -65,11 +66,13 @@ def annuity(n, r):
         return r / (1. - 1. / (1. + r) ** n)
     else:
         return 1 / n
-    
+
+# calculate annulised captial cost for CHP    
 annutiy_factor_CPH=annuity(n=25, r=0.07)
 annulised_capital_cost_CHP=annutiy_factor_CPH*600000*(1 + 0.03) # €/MW
 
 
+# Add CHP plants to each country
 for country in countries:
     network_multi.add(
         "Link",
@@ -77,29 +80,28 @@ for country in countries:
         bus0=f"{country}_gas",
         bus1=country,
         bus2=f"{country}_heat",
-        p_nom=10**3, # 1 GW of fuel input
-        marginal_cost=53, # €/MWh fuel cost
+        p_nom_extendable=True,
+        marginal_cost=21.6,
         capital_cost=annulised_capital_cost_CHP,
         efficiency=0.49,
         efficiency2=0.43,
         p_min_pu=0
     )
 
-
 # Add heat pumps to italy and france, with a fixed COP that depends on the temperature in Basel
 annutiy_factor_HP=annuity(n=20, r=0.07)
 annulised_capital_cost_HP=annutiy_factor_HP*933000*(1 + 0.035) # €/MW
 
+# Define COP function
 def cop(t_source, t_sink=55):
     delta_t = t_sink - t_source
     return 6.81 - 0.121 * delta_t + 0.00063 * delta_t**2
 
-
+# Get temperature data
 temp=df_temp["temperature"]
 
-
+# Add heat pumps to france and italy
 for country in ["FR", "IT"]:
-
 
     network_multi.add(
         "Link",
@@ -113,10 +115,102 @@ for country in ["FR", "IT"]:
         p_min_pu=0
         )  # €/MWe/a
 
+# Calculate annulised capital cost for the boiler
+annutiy_factor_boiler=annuity(n=20, r=0.07)
+annulised_capital_cost_boiler=annutiy_factor_CPH*63000*(1 + 0.015) # €/MW
 
+# Add boilers to each country, fuelled by gas from the gas store
+for country in countries:
+    network_multi.add("Link", f"{country}_boiler",
+        bus0=f"{country}_gas", bus1=f"{country}_heat",
+        p_nom_extendable=True,
+        efficiency=0.9,
+        marginal_cost=21.6, # €/th_MWh fuel cost,
+        capital_cost=annulised_capital_cost_boiler)
+    
 #%% ----------------------------------------------------------------------------------------------
 #                                 Optimize both networks
 ### ----------------------------------------------------------------------------------------------
 
-#network_base.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
+network_base.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
 network_multi.optimize(solver_name='gurobi', solver_options={"OutputFlag": 0})
+
+#%% ----------------------------------------------------------------------------------------------
+#                                 Results analysis
+### ----------------------------------------------------------------------------------------------
+
+#%% -------------- Compare total system cost------------------------------
+print("\n=== Total System Cost (M€) ===")
+print(f'Basecase: {round(network_base.objective/1e6,2)}')
+
+print(f'Multi-carrier system: {round(network_multi.objective /1e6,2)}')
+
+# Print how big objective is compared to base case
+print(f"Multi-carrier system is {round((network_multi.objective - network_base.objective)/network_base.objective*100,2)}% more expensive than the base case")
+
+# %% -------------- Optimal Capacity and generation mix--------------------
+print("\n=== Optimal Capacity (MW) ===")
+network_multi.generators.p_nom_opt # Check generators
+
+#%%
+network_multi.links.p_nom_opt # Check links
+
+#%%
+print("\n=== Optimal Generation (MWh) ===")
+network_multi.generators_t.p # Check generators
+
+#%%
+for country in countries:
+    print(f"\n{country} CHP generation (MWh): {-network_multi.links_t.p1[f'{country}_CHP'].sum()}")
+    print(f"{country} boiler generation (MWh): {-network_multi.links_t.p1[f'{country}_boiler'].sum()}")  
+
+for country in ["FR", "IT"]:
+    print(f"{country} heat pump generation (MWh): {-network_multi.links_t.p1[f'{country}_heat_pump'].sum()}")
+
+#%%
+# Plot dispatch and cpacity for each country in different subplots
+# I want to make a plot where the left plot is for electricity and the right is for heat. Show stacked bar plots (in each subplot two stacked bars for each country, one for installed cpaacities and one for generation) with different colors for the different technologies.
+
+pd.concat([-network_multi.links_t.p2['FR_CHP'].loc["2015-01"],-network_multi.links_t.p1['FR_heat_pump'].loc["2015-01"],-network_multi.links_t.p1['FR_boiler'].loc["2015-01"]], axis=1).plot.area(figsize=(6, 2), ylabel="dispatch")
+pd.concat([-network_multi.links_t.p2['FR_CHP'].loc["2015-07"],-network_multi.links_t.p1['FR_heat_pump'].loc["2015-07"],-network_multi.links_t.p1['FR_boiler'].loc["2015-07"]], axis=1).plot.area(figsize=(6, 2), ylabel="dispatch")
+
+
+
+#%%-------------------- Demand analysis -----------------------------------
+df_elec = pd.read_csv('data/electricity_demand.csv', sep=';', index_col=0)  # in MWh
+df_elec.index = pd.to_datetime(df_elec.index)
+
+# Find heat demand for each country and electricity demand for each country in GWh
+# and the ratio between the two
+for country in countries:
+    print(f"\n{country} electricity demand (GWh): {round(df_elec[countries[country]].sum()/1e3, 2)}")
+    print(f"{country} heat demand (GWh): {round(heat_demand[countries[country]].sum()/1e3, 2)}")
+    print(f"{country} heat to electricity ratio: {round(heat_demand[countries[country]].sum()/df_elec[countries[country]].sum(), 2)}")   
+
+#%% Total electricity demand and heat demand and ratio
+total_heat_demand = heat_demand[countries.values()].sum().sum() / 1e3  # in GWh
+total_electricity_demand = df_elec[countries.values()].sum().sum() / 1e3  # in GWh
+print(f"\nTotal heat demand (GWh): {round(total_heat_demand, 2)}")
+print(f"Total electricity demand (GWh): {round(total_electricity_demand, 2)}")
+print(f"Total heat to electricity ratio: {round(total_heat_demand/total_electricity_demand, 2)}")
+print(f"The sum of heat and electricity demand is {round(total_heat_demand + total_electricity_demand, 2)} GWh  ")
+
+
+
+# Plot heat and electricity for france diuring the year
+df_plot = pd.concat([heat_demand[countries["FR"]], df_elec[countries["FR"]]], axis=1)
+df_plot.columns = ["Heat demand", "Electricity demand"]
+df_plot.plot(figsize=(10, 4), ylabel="Demand (MWh)", title="France heat and electricity demand")    
+
+
+
+
+
+#%% -------------------------------Exports/Imports --------------------------------------
+# Exports/Imports per country
+
+pf.avg_annual_net_export_bar_plot(network_multi)
+pf.flow_matrix_heatmap(network_multi)
+
+
+
