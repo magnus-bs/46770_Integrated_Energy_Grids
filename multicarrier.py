@@ -210,154 +210,16 @@ pf.avg_annual_net_export_bar_plot(network_multi)
 pf.flow_matrix_heatmap(network_multi)
 
 
-# %%
 
-# -----------------------------
-# SETTINGS
-# -----------------------------
-country_order = ["FR", "DE", "CH", "IT", "BE"]
+#%% -----------------------------
+# PLOT DISPATCH FOR ELECTRICITY AND HEAT
+# -------------------------------
 
-carrier_colors = {
-    "onshorewind": "#4C78A8",
-    "wind": "#4C78A8",
-    "solar": "#F2A541",
-    "hydro": "#72B7B2",
+pf.plot_energy_mix_multi(
+    network=network_multi,
+    countries=countries,
+    country_order=["FR", "DE", "CH", "IT", "BE"]
+)
 
-    "OCGT": "#E45756",
-    "CHP": "#C00000",
-    "boiler": "#5A3118",
-    "nuclear": "#9D755D",
 
-    "heat_pump": "#00B3FF"
-}
-
-# -----------------------------
-# ELECTRICITY SIDE
-# -----------------------------
-gen = network_multi.generators_t.p.copy()
-gen_info = network_multi.generators[['bus', 'carrier']].copy()
-gen_info['country'] = gen_info['bus'].str[:2]
-
-# fix naming
-gen_info['carrier'] = gen_info['carrier'].replace({"gas": "OCGT"})
-
-gen_annual = gen.sum().to_frame(name='generation')
-gen_annual = gen_annual.join(gen_info)
-
-# CHP electricity
-chp_elec = {
-    c: -network_multi.links_t.p1[f"{c}_CHP"].sum()
-    for c in countries.keys()
-}
-
-chp_df = pd.DataFrame({
-    "generation": pd.Series(chp_elec),
-    "country": list(chp_elec.keys()),
-    "carrier": "CHP"
-}).reset_index(drop=True)
-
-elec_df = pd.concat([gen_annual, chp_df])
-elec_df = elec_df.groupby(['country', 'carrier'])['generation'].sum().unstack(fill_value=0)
-elec_df = elec_df.reindex(country_order)
-
-# -----------------------------
-# HEAT SIDE
-# -----------------------------
-# CHP heat
-chp_heat = {
-    c: -network_multi.links_t.p2[f"{c}_CHP"].sum()
-    for c in countries.keys()
-}
-
-# Heat pumps
-hp_heat = {
-    c: -network_multi.links_t.p1[f"{c}_heat_pump"].sum()
-    for c in ["FR", "IT", "CH"]
-}
-
-# Boilers
-boiler_heat = {
-    c: -network_multi.links_t.p1[f"{c}_boiler"].sum()
-    for c in countries.keys()
-}
-
-heat_df = pd.DataFrame({
-    "CHP": pd.Series(chp_heat),
-    "heat_pump": pd.Series(hp_heat),
-    "boiler": pd.Series(boiler_heat)
-}).fillna(0)
-
-# -----------------------
-# PLOT
-# -----------------------
-#%%
-
-fig, ax = plt.subplots(figsize=(5, 5), dpi=300)
-
-y = np.arange(len(country_order))
-bar_h = 0.35
-gap = 0.1
-
-elec_df = elec_df.reindex(country_order).fillna(0)
-heat_df = heat_df.reindex(country_order).fillna(0)
-
-elec_total = elec_df.sum(axis=1).values
-heat_total = heat_df.sum(axis=1).values
-x_max = max(elec_total.max(), heat_total.max())
-
-# -------------------------
-# BACKGROUND SPANS
-# -------------------------
-for i, yi in enumerate(y):
-    # Vertical boundaries: halfway to the neighbour above/below
-    bottom_bound = (yi + y[i-1]) / 2 if i > 0 else yi - 0.5
-    top_bound    = (yi + y[i+1]) / 2 if i < len(y)-1 else yi + 0.5
-
-    midpoint = yi  # divides heat (top) from electricity (bottom)
-
-    ax.axhspan(bottom_bound, midpoint, color="gray", alpha=0.02, zorder=0)
-    ax.axhspan(midpoint,     top_bound, color="gray",  alpha=0.15, zorder=0)
-
-# -------------------------
-# DATA BARS
-# -------------------------
-legend_labels = set()
-
-def plot_stacked_barh(ax, df, y_positions, height, carrier_colors, legend_labels):
-    bottom = np.zeros(len(y_positions))
-    for carrier in df.columns:
-        values = df.loc[country_order, carrier].values
-        color = carrier_colors.get(carrier, "gray")
-        label = carrier if carrier not in legend_labels else None
-        ax.barh(y_positions, values, left=bottom, height=height,
-                color=color, label=label, zorder=2)
-        if label:
-            legend_labels.add(carrier)
-        bottom += values
-
-plot_stacked_barh(ax, elec_df, y - bar_h/2 - gap/2, bar_h, carrier_colors, legend_labels)
-plot_stacked_barh(ax, heat_df, y + bar_h/2 + gap/2, bar_h, carrier_colors, legend_labels)
-
-# -------------------------
-# LEGEND
-# -------------------------
-from matplotlib.patches import Patch
-
-carrier_handles = [
-    Patch(color=carrier_colors[c], label=c)
-    for c in carrier_colors if c in legend_labels
-]
-bg_handles = [
-    Patch(color="gray",  alpha=0.15, label="Heat"),
-    Patch(color="gray", alpha=0.01, label="Electricity"),
-]
-ax.legend(handles=bg_handles + carrier_handles, loc="upper right", fontsize=10)
-
-ax.set_yticks(y)
-ax.set_yticklabels(country_order)
-ax.set_xlabel("Energy (MWh)")
-ax.set_xlim(0, x_max * 1.01)  # prevent background from exceeding axis
-ax.set_ylim(y[0] - 0.5, y[-1] + 0.5)
-plt.tight_layout()
-plt.show()
 # %%

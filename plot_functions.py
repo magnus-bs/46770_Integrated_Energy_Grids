@@ -813,3 +813,166 @@ def export_plot_analyses(network_nodes, week = slice('2015-07-10', '2015-07-17')
 
 
 
+
+
+def plot_energy_mix_multi(
+    network,
+    countries,
+    country_order=None,
+    carrier_colors=None,
+    figsize=(5, 5),
+    dpi=300
+):
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    # -----------------------------
+    # DEFAULT SETTINGS
+    # -----------------------------
+    if country_order is None:
+        country_order = list(countries.keys())
+
+    if carrier_colors is None:
+        carrier_colors = {
+            "onshorewind": "#4C78A8",
+            "wind": "#4C78A8",
+            "solar": "#F2A541",
+            "hydro": "#72B7B2",
+            "OCGT": "#E45756",
+            "CHP": "#C00000",
+            "boiler": "#5A3118",
+            "nuclear": "#9D755D",
+            "heat_pump": "#00B3FF"
+        }
+
+    # -----------------------------
+    # ELECTRICITY SIDE
+    # -----------------------------
+    gen = network.generators_t.p.copy()
+    gen_info = network.generators[['bus', 'carrier']].copy()
+    gen_info['country'] = gen_info['bus'].str[:2]
+
+    gen_info['carrier'] = gen_info['carrier'].replace({"gas": "OCGT"})
+
+    gen_annual = gen.sum().to_frame(name='generation')
+    gen_annual = gen_annual.join(gen_info)
+
+    # CHP electricity
+    chp_elec = {
+        c: -network.links_t.p1[f"{c}_CHP"].sum()
+        for c in countries.keys()
+    }
+
+    chp_df = pd.DataFrame({
+        "generation": pd.Series(chp_elec),
+        "country": list(chp_elec.keys()),
+        "carrier": "CHP"
+    })
+
+    elec_df = pd.concat([gen_annual, chp_df])
+    elec_df = elec_df.groupby(['country', 'carrier'])['generation'].sum().unstack(fill_value=0)
+    elec_df = elec_df.reindex(country_order).fillna(0)
+
+    # -----------------------------
+    # HEAT SIDE
+    # -----------------------------
+    chp_heat = {
+        c: -network.links_t.p2[f"{c}_CHP"].sum()
+        for c in countries.keys()
+    }
+
+    hp_heat = {
+        c: -network.links_t.p1[f"{c}_heat_pump"].sum()
+        for c in countries.keys() if f"{c}_heat_pump" in network.links.index
+    }
+
+    boiler_heat = {
+        c: -network.links_t.p1[f"{c}_boiler"].sum()
+        for c in countries.keys()
+    }
+
+    heat_df = pd.DataFrame({
+        "CHP": pd.Series(chp_heat),
+        "heat_pump": pd.Series(hp_heat),
+        "boiler": pd.Series(boiler_heat)
+    }).fillna(0)
+
+    heat_df = heat_df.reindex(country_order).fillna(0)
+
+    # -----------------------------
+    # PLOT
+    # -----------------------------
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    y = np.arange(len(country_order))
+    bar_h = 0.35
+    gap = 0.1
+
+    elec_total = elec_df.sum(axis=1).values
+    heat_total = heat_df.sum(axis=1).values
+    x_max = max(elec_total.max(), heat_total.max())
+
+    # Background shading
+    for i, yi in enumerate(y):
+        bottom_bound = (yi + y[i-1]) / 2 if i > 0 else yi - 0.5
+        top_bound = (yi + y[i+1]) / 2 if i < len(y)-1 else yi + 0.5
+
+        ax.axhspan(bottom_bound, yi, color="gray", alpha=0.02, zorder=0)
+        ax.axhspan(yi, top_bound, color="gray", alpha=0.15, zorder=0)
+
+    # -----------------------------
+    # STACKED BAR FUNCTION
+    # -----------------------------
+    legend_labels = set()
+
+    def plot_stacked_barh(df, y_positions):
+        bottom = np.zeros(len(y_positions))
+        for carrier in df.columns:
+            values = df[carrier].values
+            color = carrier_colors.get(carrier, "gray")
+            label = carrier if carrier not in legend_labels else None
+
+            ax.barh(
+                y_positions,
+                values,
+                left=bottom,
+                height=bar_h,
+                color=color,
+                label=label,
+                zorder=2
+            )
+
+            if label:
+                legend_labels.add(carrier)
+
+            bottom += values
+
+    # Plot electricity and heat
+    plot_stacked_barh(elec_df, y - bar_h/2 - gap/2)
+    plot_stacked_barh(heat_df, y + bar_h/2 + gap/2)
+
+    # -----------------------------
+    # LEGEND
+    # -----------------------------
+    carrier_handles = [
+        Patch(color=carrier_colors[c], label=c)
+        for c in carrier_colors if c in legend_labels
+    ]
+
+    bg_handles = [
+        Patch(color="gray", alpha=0.15, label="Heat"),
+        Patch(color="gray", alpha=0.02, label="Electricity"),
+    ]
+
+    ax.legend(handles=bg_handles + carrier_handles, loc="upper right", fontsize=10)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(country_order)
+    ax.set_xlabel("Energy (MWh)")
+    ax.set_xlim(0, x_max * 1.05)
+    ax.set_ylim(y[0] - 0.5, y[-1] + 0.5)
+
+    plt.tight_layout()
+    plt.show()
