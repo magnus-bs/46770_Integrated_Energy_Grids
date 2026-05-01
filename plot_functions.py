@@ -207,6 +207,14 @@ def interannual_var_boxplots(df_results, figsize = (8,7), dpi = 300):
 
     plt.ylabel("Optimal Capacity (MW)")
     plt.xlabel("Generator")
+    labels = {
+            "onshorewind": "Onshore Wind",
+            "solar": "Solar",
+            "OCGT": "Gas (OCGT)",
+            "nuclear": "Nuclear",
+            "hydro": "Hydro"
+        }
+    ax.set_xticklabels([labels.get(t.get_text(), t.get_text()) for t in ax.get_xticklabels()], rotation=30)
     #plt.title("Optimal Capacity Across Weather Years")
 
     # Rotate x-ticks for readability
@@ -220,7 +228,38 @@ def interannual_var_boxplots(df_results, figsize = (8,7), dpi = 300):
     plt.show()
 
 
-def weekly_dispatch_plot(network, tech_colors, start_day, storage = False, figsize = (15,5), dpi = 300):
+
+def corr_cf_load(CF_wind_dict, CF_solar_dict, demand):
+    years = list(CF_wind_dict.keys())
+    corr_df = pd.DataFrame({
+        'year': years,
+        'wind_load_corr': [np.corrcoef(CF_wind_dict[y], demand)[0, 1] for y in years],
+        'solar_load_corr': [np.corrcoef(CF_solar_dict[y], demand)[0, 1] for y in years],
+    })
+    print(corr_df)
+
+    fig, ax = plt.subplots(figsize=(18, 2.3), dpi=300)
+
+    data = pd.DataFrame(
+        [corr_df['wind_load_corr'].values,
+        corr_df['solar_load_corr'].values],
+        index=['W-L', 'S-L'],
+        columns=corr_df['year']
+    )
+
+    sns.heatmap(data, annot=True, fmt='.2f', cmap='coolwarm',
+                vmin=0.05, vmax=0.42, ax=ax,
+                cbar_kws={'label': "PCC"})
+    ax.set_xlabel("Year")
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation =0)
+    print('Correlation between Capacity Factors and Load per Weather Year')
+    plt.tight_layout()
+    plt.show()
+
+
+
+def weekly_dispatch_plot(network, tech_colors, start_day, storage = False, figsize = (15,5), dpi = 300, ncol = 5):
     # Plot dispatch (In winter, first week)
     plot_time=24*7
     plot_delay = start_day
@@ -246,7 +285,7 @@ def weekly_dispatch_plot(network, tech_colors, start_day, storage = False, figsi
     plt.legend(
         loc="upper center",
         bbox_to_anchor = (0.5, 1.15),
-        ncol=5,
+        ncol=ncol,
         frameon=False,
         fontsize=12
     )
@@ -385,50 +424,57 @@ def annual_capacities_and_dispatch(df_results, tech_colors):
     plt.show()
 
 
-def weekly_soc_plot(network_storage, start_day):
+def weekly_soc_plot(network_storage, start_day, full_year = False):
     delay = start_day
     plot_time = 24*7
 
-    plt.figure(figsize=(12, 4))
+    if full_year:
+        delay = 0
+        plot_time = 365*24
+
+    plt.figure(figsize=(13, 2), dpi = 500)
     plt.plot(network_storage.storage_units_t.state_of_charge[delay:delay+plot_time]["Pumped Hydro"], color='teal')
-    plt.title('Pumped Hydro State of Charge (MWh)')
-    plt.ylabel('Energy Stored (MWh)')
+    print('Pumped Hydro State of Charge (MWh)')
+    plt.ylabel('Energy (MWh)')
     plt.fill_between(network_storage.snapshots[delay:delay+plot_time], 
                     network_storage.storage_units_t.state_of_charge[delay:delay+plot_time]["Pumped Hydro"], 
                     color='teal', alpha=0.2)
+    plt.xlabel("Time [yy:mm]")
     plt.grid(True, alpha=0.3)
     plt.show()
 
 def gen_cap_mix_stacked(df_gen_bus, df_cap_bus, df_demand, carrier_colors):
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6), dpi = 300)
-
-    # --- Generation (TWh) ---
-    df_gen_bus.plot(
-        kind="bar",
-        stacked=True,
-        color=[carrier_colors.get(c, "gray") for c in df_gen_bus.columns],
-        ax=axes[0]
-    )
-    axes[0].set_ylabel("Annual generation (TWh)")
-    axes[0].set_title("Generation Mix per Country")
-    axes[0].legend().remove()  # remove duplicate legend
-    
-    # --- Demand markers ---
-    x_positions = range(len(df_gen_bus.index))
-    axes[0].scatter(x_positions, df_demand.reindex(df_gen_bus.index),
-                    color="black", zorder=5, marker="_", s=1800, linewidths=2, label="Demand")
-    axes[0].legend(["Demand"])
+    fig, axes = plt.subplots(1, 2, figsize=(16, 5), dpi = 300)
     
     # --- Capacity (GW) ---
     df_cap_bus.plot(
         kind="bar",
         stacked=True,
         color=[carrier_colors.get(c, "gray") for c in df_cap_bus.columns],
-        ax=axes[1]
+        ax=axes[0],
+        alpha = 0.9
     )
-    axes[1].set_ylabel("Installed capacity (GW)")
-    axes[1].set_title("Optimal Capacity per Country")
-    axes[1].legend(loc = 'best', ncol = 2)
+    axes[0].set_ylabel("Installed Capacity (GW)")
+    #axes[0].set_title("Optimal Capacity per Country")
+    axes[0].legend(loc = 'best', ncol = 2)
+
+    # --- Generation (TWh) ---
+    df_gen_bus.plot(
+        kind="bar",
+        stacked=True,
+        color=[carrier_colors.get(c, "gray") for c in df_gen_bus.columns],
+        ax=axes[1],
+        alpha = 0.9
+    )
+    axes[1].set_ylabel("Annual Generation (TWh)")
+    #axes[1].set_title("Generation Mix per Country")
+    axes[1].legend().remove()  # remove duplicate legend
+    
+    # --- Demand markers ---
+    x_positions = range(len(df_gen_bus.index))
+    axes[1].scatter(x_positions, df_demand.reindex(df_gen_bus.index),
+                    color="black", zorder=5, marker="_", s=1800, linewidths=2, label="Demand")
+    axes[1].legend(["Demand"])
 
     # --- Final layout tweaks ---
     for ax in axes:
@@ -691,4 +737,79 @@ def capacity_dispatch_bars(network, tech_colors):
     ax.legend(handles=legend_elements)
     plt.tight_layout()
     plt.show()
+
+
+def export_plot_analyses(network_nodes, week = slice('2015-07-10', '2015-07-17')):
+    net_export = pd.DataFrame(index=network_nodes.snapshots)
+    for line in network_nodes.lines.index:
+        bus0 = network_nodes.lines.loc[line, 'bus0']
+        bus1 = network_nodes.lines.loc[line, 'bus1']
+        flow = network_nodes.lines_t.p0[line]
+        net_export[bus0] = net_export.get(bus0, 0) + flow
+        net_export[bus1] = net_export.get(bus1, 0) - flow
+
+
+    # Timeseries of generation per technology per country
+    gen_ts_by_bus = {}
+    for gen in network_nodes.generators.index:
+        bus = network_nodes.generators.loc[gen, 'bus']
+        carrier = network_nodes.generators.loc[gen, 'carrier']
+        ts = network_nodes.generators_t.p[gen]
+        gen_ts_by_bus.setdefault(bus, {})
+        if carrier in gen_ts_by_bus[bus]:
+            gen_ts_by_bus[bus][carrier] += ts
+        else:
+            gen_ts_by_bus[bus][carrier] = ts.copy()
+
+    # Correlation between each technology and net export per country
+    corr_results = {}
+    for country in gen_ts_by_bus.keys():
+        corr_results[country] = {}
+        for carrier, ts in gen_ts_by_bus[country].items():
+            corr = np.corrcoef(ts, net_export[country])[0, 1]
+            corr_results[country][carrier] = corr
+
+    # Display as dataframe
+    corr_export_df = pd.DataFrame(corr_results).T  # countries as rows, carriers as columns
+    #print(corr_export_df)
+
+    print("Pearson Correlation Coefficients between Net Export and Generation")
+    fig, ax = plt.subplots(figsize=(14,4))
+    sns.heatmap(corr_export_df, annot=True, fmt=".1f", cmap="RdBu_r", center=0, ax=ax)
+    plt.show()
+
+    print("Dispatch, Week:", week)
+    countries = ['FR', 'CH', 'DE', 'IT', 'BE']
+    fig, axes = plt.subplots(len(countries), 1, figsize=(16, 3.3*len(countries)), dpi=300, sharex=True)
+
+    for ax1, code in zip(axes, countries):
+        for carrier, ts in gen_ts_by_bus[code].items():
+            ax1.plot(ts[week].index, ts[week].values, label=carrier)
+
+        ax1.set_ylabel('Generation (MW)')
+        ax1.grid(alpha=0.3)
+        ax1.set_title(code)
+
+        ax2 = ax1.twinx()
+        ax2.plot(net_export[code][week].index, net_export[code][week].values,
+                color='black', linestyle='--', linewidth=1.5, label='Net Export')
+        ax2.set_ylabel('Net Export (MW)')
+        ax2.axhline(0, color='black', linewidth=0.5)
+
+    axes[-1].set_xlabel('Date')
+
+    # Collect handles from first subplot + net export
+    handles, labels = axes[0].get_legend_handles_labels()
+    net_export_handle = plt.Line2D([0], [0], color='black', linestyle='--', linewidth=1.5, label='Net Export')
+    handles.append(net_export_handle)
+    labels.append('Net Export')
+
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.02),
+            ncol=len(handles), frameon=False)
+
+    plt.suptitle('Generation Dispatch and Net Export (10/07 - 17/07 2015)', y=1.05)
+    plt.tight_layout()
+    plt.show()
+
+
 
