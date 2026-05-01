@@ -289,7 +289,8 @@ def weekly_dispatch_plot(network, tech_colors, start_day, storage = False, figsi
         frameon=False,
         fontsize=12
     )
-    plt.xlabel('Hour')
+    plt.xlabel('Time (yy:mm:dd)')
+    plt.xticks(rotation = 0)
     plt.ylabel('Power (MW)')
     plt.grid(alpha=0.3)
     plt.show()
