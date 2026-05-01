@@ -158,6 +158,8 @@ print(round(network.generators_t.p.sum()*10**(-3),0))
 import importlib
 import plot_functions as pf
 
+print("Results of Step 1: 1-Node France Network")
+
 # Weekly Disptach (summer/winter)
 print("Winter:")
 pf.weekly_dispatch_plot(network, tech_colors, start_day = 0, figsize = (13,3))
@@ -167,14 +169,14 @@ pf.weekly_dispatch_plot(network, tech_colors, start_day = 24*30*6, figsize=(13,3
 colors = [tech_colors['onshorewind'], tech_colors['solar'], tech_colors['OCGT'], tech_colors['nuclear']]
 labels = ['Onshore Wind', 'Solar', 'Gas (OCGT)', 'Nuclear']
 
-# Energy Mix
-pf.energy_mix_piechart(network, colors, labels, full_year = True, dpi = 300)
+#print("Electricity Mix")
+pf.capacity_dispatch_bars(network, tech_colors)
+#pf.energy_mix_piechart(network, colors, labels, full_year = True, dpi = 300)
     
-# Load Duration Curves
+print("Load Duration Curves")
 pf.duration_curves(network, tech_colors, figsize = (7,5.5), dpi = 400)
 
-# Capacity and dispatch
-pf.capacity_dispatch_bars(network, tech_colors)
+
 
 
 #%% ----------------------------------------------------------------------------------------------
@@ -190,6 +192,8 @@ years = range(2010, 2018)
 # Store results:
 results = []
 cost_results = []
+CF_wind_dict = {}
+CF_solar_dict = {}
 
 for year in years:
     print(f"Running optimization for {year}...")
@@ -205,6 +209,11 @@ for year in years:
     # Convert to values
     CF_wind = CF_wind.values    
     CF_solar = CF_solar.values
+
+    # Save average capacity factor
+    CF_wind_dict[year] = CF_wind
+    CF_solar_dict[year] = CF_solar
+    
 
     # Create network (Same as earlier, therefore less comments)
     network_year = pypsa.Network()
@@ -257,30 +266,40 @@ df_costs = pd.DataFrame(cost_results)
 df_results = pd.DataFrame(results)
 
 # --------------
-# VISUALISATIONS:
+#%% VISUALISATIONS:
 # --------------
+print("Analysis of Inter-Annual Variability")
 
-pf.annual_capacities_and_dispatch(df_results, tech_colors)
+#pf.annual_capacities_and_dispatch(df_results, tech_colors)
 
 largest_difference = df_costs['total_cost_M€'].max() / df_costs['total_cost_M€'].min() * 100 - 100
 print("The largest percentage difference between worst and best year is "+str(round(largest_difference,2))+"%")
 
 pf.interannual_var_boxplots(df_results)
 
-# Plot total cost over years
-plt.figure(figsize=(10,6), dpi = 300)
-plt.plot(df_costs['year'], df_costs['total_cost_M€'], marker='o', linestyle='-', color='tab:blue')
-plt.xlabel('Year')
-plt.ylabel('Total System Cost (M€)')
+fig, ax1 = plt.subplots(figsize=(14, 6), dpi=300)
+
+# Primary axis - costs
+ax1.plot(df_costs['year'], df_costs['total_cost_M€'], marker='o', linestyle='-', color='tab:blue', label='Total Cost')
+ax1.set_xlabel('Year')
+ax1.set_ylabel('Total System Cost (M€)', color='tab:blue')
+ax1.tick_params(axis='y', labelcolor='tab:blue')
+ax1.grid(alpha=0.3)
+
 plt.title('Total System Cost per Weather Year')
-plt.grid(alpha=0.3)
-#plt.ylim(0,df_costs['total_cost_M€'].max())
+plt.tight_layout()
 plt.show()
 
+print("Wind CF")
+for year in years:
+    print(year,":", CF_wind_dict[year].mean())
+print("Solar CF")
+for year in years:
+    print(year,":", CF_solar_dict[year].mean())
 
-
-
-
+importlib.reload(pf)
+pf.corr_cf_load(CF_wind_dict, CF_solar_dict, demand)
+    
 
 
 #%% ----------------------------------------------------------------------------------------------
@@ -311,13 +330,14 @@ p_nom_storage = network_storage.storage_units.p_nom_opt["Pumped Hydro"]
 print(f"Optimal Pumped Hydro Capacity: {p_nom_storage:.2f} MW")
 
 # 3. Plot Dispatch with Storage (First week of the last year)
-start_day = 24 * 30 * 6 + 24 * 15
-pf.weekly_dispatch_plot(network_storage, tech_colors, start_day, storage = True, figsize=(20,8))
+#%%
+start_day = 24 * 30 * 6 + 24 * 10
+pf.weekly_dispatch_plot(network_storage, tech_colors, start_day, storage = True, figsize=(13,3), dpi = 600, ncol = 6)
 
 pf.energy_mix_piechart(network_storage, colors, labels, full_year = True)
 
 # 4. Plot State of Charge (How full the "battery" is)
-pf.weekly_soc_plot(network_storage, start_day)
+pf.weekly_soc_plot(network_storage, start_day, full_year=True)
 
 
 
@@ -370,6 +390,10 @@ pf.plot_dispatch_timeseries(network, network_storage, gens, labels, colors, hour
 
 # ── 6. Storage state of charge (full year) ───────────────────────────────────
 pf.plot_storage(network_storage)
+
+
+
+
 
 
 #%% ----------------------------------------------------------------------------------------------
@@ -526,6 +550,8 @@ carrier_colors = {
     "hydro": "#72B7B2"         # teal
 }
 
+
+#%%
 importlib.reload(pf)
 pf.gen_cap_mix_stacked(df_gen_bus, df_cap_bus, df_demand, carrier_colors)
 
@@ -541,6 +567,8 @@ importlib.reload(pf)
 
 pf.avg_annual_net_export_bar_plot(network_nodes)
 pf.flow_matrix_heatmap(network_nodes)
+
+pf.export_plot_analyses(network_nodes, week = slice('2015-07-10', '2015-07-17'))
 
 
 
