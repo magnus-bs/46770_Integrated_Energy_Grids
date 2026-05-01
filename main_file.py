@@ -679,7 +679,12 @@ pf.plot_first_hour_trade_and_flow(network_nodes, t0=t0, show_demand_generation=T
 
 
 
-#%% f: impose co2 limit
+
+
+
+#%% ----------------------------------------------------------------------------------------------
+#                                       Step F: Impose CO2 Limit
+### ----------------------------------------------------------------------------------------------
 
 
 gen = network.generators_t.p
@@ -729,6 +734,10 @@ for limit in co2_limits:
     cap_by_carrier = gen_capacity.groupby(n.generators.carrier).sum()
     capacity_mix.append(cap_by_carrier)
 
+
+
+
+#%%
 # =========================
 # ENERGY MIX (PERCENTAGE)
 # =========================
@@ -736,9 +745,11 @@ df_energy = pd.DataFrame(energy_mix, index=co2_limits)
 df_energy = df_energy.fillna(0)
 df_energy = df_energy / df_energy.sum(axis=1).values[:, None]
 df_energy_percent = df_energy * 100
-df_energy_percent.index = df_energy_percent.index / 1e6 # convert to Mton
-df_energy_percent.index = df_energy_percent.index.astype(object)
-df_energy_percent.index.values[0] = r"$\infty$"
+df_energy_percent.index = df_energy_percent.index / 1e6  # convert to Mton
+idx = (df_energy_percent.index / 1e6).tolist()
+idx = df_energy_percent.index.tolist()
+idx[0] = r"$\infty$"
+df_energy_percent.index = idx
 carrier_color_map = {
     "onshorewind": tech_colors["onshorewind"],
     "solar": tech_colors["solar"],
@@ -755,17 +766,6 @@ df_energy_percent.rename(columns={
     "nuclear": "Nuclear"
 }, inplace=True)
 
-df_energy_percent.plot(kind="bar", stacked=True, figsize=(10,6),
-                       color=[carrier_color_map[k] for k in carrier_color_map.keys()])
-
-plt.xlabel("CO2 limit (Mton)")
-plt.ylabel("Energy share (%)")
-plt.title("Energy mix vs CO2 constraint")
-plt.legend(title="Technology", bbox_to_anchor=(1.05,1))
-plt.tight_layout()
-plt.show()
-
-
 # =========================
 # CAPACITY MIX (ABSOLUTE)
 # =========================
@@ -773,10 +773,11 @@ df_capacity = pd.DataFrame(capacity_mix, index=co2_limits)
 df_capacity = df_capacity.fillna(0)
 
 df_capacity = df_capacity[carrier_color_map.keys()]
-df_capacity.index = df_capacity.index / 1e6 # convert to Mton
-df_capacity = df_capacity / 1000 # convert to GW
-df_capacity.index = df_capacity.index.astype(object)
-df_capacity.index.values[0] = r"$\infty$"
+df_capacity.index = df_capacity.index / 1e6  # convert to Mton
+df_capacity = df_capacity / 1000  # convert to GW
+idx = df_capacity.index.tolist()
+idx[0] = r"$\infty$"
+df_capacity.index = idx
 df_capacity.rename(columns={
     "onshorewind": "Onshore Wind",
     "solar": "Solar",
@@ -784,17 +785,8 @@ df_capacity.rename(columns={
     "nuclear": "Nuclear"
 }, inplace=True)
 
-df_capacity.plot(kind="bar", stacked=True, figsize=(10,6),
-                 color=[carrier_color_map[k] for k in carrier_color_map.keys()])
 
-plt.xlabel("CO2 limit (Mton)")
-plt.ylabel("Installed capacity (GW)")
-plt.title("Installed capacity vs CO2 constraint")
-plt.legend(title="Technology", bbox_to_anchor=(1.05,1))
-plt.tight_layout()
-plt.show()
-
-#%% =========================
+# =========================
 # STYLE SETTINGS (ADJUST HERE)
 # ===========================
 TITLE_SIZE = 20
@@ -806,7 +798,7 @@ LEGEND_SIZE = 16
 # =========================
 # PLOTTING
 # =========================
-fig, axes = plt.subplots(2, 1, figsize=(12,6), sharex=True)
+fig, axes = plt.subplots(2, 1, figsize=(9,8), sharex=True, dpi = 300)
 
 # -------------------------
 # ENERGY MIX (TOP)
@@ -816,11 +808,12 @@ df_energy_percent.plot(
     stacked=True,
     ax=axes[0],
     color=[carrier_color_map[k] for k in carrier_color_map.keys()],
-    legend=False
+    legend=False,
+    alpha = 0.9
 )
 
 axes[0].set_ylabel("Energy Share (%)", fontsize=LABEL_SIZE)
-axes[0].set_title("Energy Mix vs CO2 Constraint", fontsize=TITLE_SIZE)
+axes[0].set_title("Energy Mix Evolution", fontsize=TITLE_SIZE)
 axes[0].tick_params(axis='both', labelsize=TICK_SIZE)
 axes[0].grid(axis='y', alpha=0.3)
 
@@ -832,12 +825,13 @@ df_capacity.plot(
     kind="bar",
     stacked=True,
     ax=axes[1],
-    color=[carrier_color_map[k] for k in carrier_color_map.keys()]
+    color=[carrier_color_map[k] for k in carrier_color_map.keys()],
+    alpha = 0.9
 )
 
 axes[1].set_xlabel("CO2 Limit (Mton)", fontsize=LABEL_SIZE)
 axes[1].set_ylabel("Installed Capacity (GW)", fontsize=LABEL_SIZE)
-axes[1].set_title("Installed Capacity vs CO2 Constraint", fontsize=TITLE_SIZE)
+axes[1].set_title("Installed Capacity Evolution", fontsize=TITLE_SIZE)
 axes[1].tick_params(axis='y',labelsize=TICK_SIZE)
 axes[1].tick_params(axis='x', rotation=0,labelsize=X_TICK_SIZE)
 axes[1].grid(axis='y', alpha=0.3)
@@ -880,7 +874,8 @@ plt.tight_layout(rect=[0, 0, 1, 1])
 plt.show()
 
 
-#%%
+# ----------------------------------------------------------------------------------------------
+# Example results:
 cap_15 = df_capacity.loc[15].sum()
 cap_infty = df_capacity.loc["$\infty$"].sum()
 pct_increase = (cap_15 / cap_infty - 1) * 100 
@@ -892,7 +887,11 @@ print("Increase in installed capacity with 1Mton CO2 limit: ",round(pct_increase
 
 
 
-#%% f: model gas pipelines
+
+#%% ----------------------------------------------------------------------------------------------
+#                                       Step G: Model Gas Pipes
+### ----------------------------------------------------------------------------------------------
+
 
 network_nodes.model.solver_model = None
 
@@ -1014,7 +1013,11 @@ print(f"Total system cost: {n_gas_nodes.objective / 1e6:.2f} million €")
 
 
 
-#%% VISUALIZATIONS W. GAS
+
+
+#%% ----------------------------------------------------------------------------------------------
+#                                       Visualisations of Gas Network
+
 
 # Stacked bar: total annual generation per technology per country
 
@@ -1145,7 +1148,13 @@ print(f"Total system emissions: {total_co2/1e6:.2f} Mton CO2")
 
 
 
-#%% h: impose co2 limit for nodal system
+
+
+
+
+#%% ----------------------------------------------------------------------------------------------
+#                                       Step H: Impose CO2 Limit for Nodal System
+### ----------------------------------------------------------------------------------------------
 
 
 gen = network_nodes.generators_t.p
