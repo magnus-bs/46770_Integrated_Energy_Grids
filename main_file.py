@@ -899,7 +899,7 @@ network_nodes.model.solver_model = None
 n_gas_nodes = network_nodes.copy()
 
 # Add gas storage in all countries
-STORAGE = True
+STORAGE = False
 
 # Remove all old OCGT generators
 ocgt_gens = n_gas_nodes.generators.index[
